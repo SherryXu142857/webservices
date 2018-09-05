@@ -5,10 +5,11 @@ var app = app || {};
  * ---------------------------------
  * the UI for 'browseBox'
  */
+var projectID;
+var userID;
 
 app.BrowseBoxView = Backbone.View.extend({
   el: '#browse_box',
-
   events: {
     'click #new_analysis': 'newWorkBox',
 
@@ -23,11 +24,10 @@ app.BrowseBoxView = Backbone.View.extend({
   },
 
   initialize: function() {
-
-    // Gets the list of analysis from the server
-    this.getAnalysisList();
-
+    projectID = readCookie('projectid');
+    userID = readCookie('user_id');
     $("#row-browsebox").show();
+    this.getAnalysisList();
   },
 
   render: function() {},
@@ -35,78 +35,107 @@ app.BrowseBoxView = Backbone.View.extend({
   newWorkBox: function() {
     // app.workBoxView.clearWorkBox();
 
-    var graphID = generateUUID();
-
-    $("#graph_info .modal-header span").text(graphID);
+    $("#graph_info .modal-header span").text("New Graph");
 
     $("#graph_info .modal-body input").val("");
     $("#graph_info .modal-body textarea").val("");
-
-    $("#graph_info .modal-footer .btn-create").text("Create").on("click", function(event) {
-
-      var title = $("#graph_info .modal-body input").val();
-      var description = $("#graph_info .modal-body textarea").val();
-
-      if (_.isEmpty(title)) {
-        alert("Please, enter a title");
-      } else {
-        var object = {
-          "graphID": graphID,
-          "userID": readCookie('user_id'),
-          "timest": generateDate(),
-          "title": title.trim(),
-          "description": description.trim(),
-          "isshared": false,
-          "parentgraphid": null
-        };
-
-        Backbone.ajax({
-          type: 'POST',
-          url: remote_server + '/VC/rest/new',
-          //dataType: 'text',
-          contentType: 'application/json', //Supply the JWT auth token
-          data: JSON.stringify(object),
-          success: function(result) {
-
-            $("#row-workbox").show();
-
-            app.workBoxView.clearWorkBox();
-
-            var ret_graph = draw([], [], chart);
-            push_graph_data(ret_graph);
-
-            $("#saveProgress").attr("disabled", true);
-
-            // saves the meta data of the graph
-            chart.graphID = graphID;
-            chart.title = object.title;
-            chart.desciption = object.description;
-            chart.date = object.timest;
-            $("#span-graphTitle").text("[" + chart.title + "]");
-
-            $("#row-browsebox").hide();
-            app.toolBoxView.$el.show();
-
-            app.browseBoxView.toggleViewMode(false);
-
-            $("#graph_info").modal('hide');
-          },
-          error: function(xhr) {
-            console.error("Ajax failed: " + xhr.statusText);
-            alert('Something went wrong. Please try again.');
-          }
-        });
-      }
-    });
-
     $("#graph_info").modal('show');
+    $("#graph_info .modal-footer .btn-create").text("Create").off("click").on("click", function(event) {
+
+        var graphID = generateUUID();
+        var title = $("#graph_info .modal-body input").val();
+        var description = $("#graph_info .modal-body textarea").val();
+
+        if (_.isEmpty(title)) {
+            alert("Please, enter a title");
+        } else {
+            var object_graphdata = {
+                "graphID": graphID,
+                "userID": userID,
+                "timest": generateDate(),
+                "title": title.trim(),
+                "description": description.trim(),
+                "isshared": "false",
+                "parentgraphid": "null",
+                "projectID": projectID 
+            };
+        
+            var object_graph_prov = {
+                "graphID": graphID,    
+                "parentgraphid": "null",
+                "originalgraphid": "null",
+                "type": "0"
+            };
+
+            Backbone.ajax({
+                type: 'POST',
+                url: remote_server + '/VC/rest/new',
+                //dataType: 'text',
+                contentType: 'application/json', //Supply the JWT auth token
+                data: JSON.stringify(object_graphdata),
+                success: function(result) {
+                    Backbone.ajax({
+                        type: 'GET',
+                        url: remote_server + "/VC/rest/project/" + projectID + "/meta",
+                        success: function(data) {
+                            if (data) {
+                                Backbone.ajax({
+                                    type: 'POST',
+                                    url: remote_server + '/VC/rest/graphprov/save/' + 0,
+                                    contentType: 'application/json',
+                                    data: JSON.stringify(object_graph_prov)
+                                });
+                            }
+                        },
+                        error: function(xhr) {
+                            alert("No project exists with this id in database.");
+                        }
+                    });
+                    $("#row-workbox").show();
+                    $("#row-contributorbox").hide();
+                    $("#row-mergedgraphbox").hide();
+
+                    app.workBoxView.clearWorkBox();
+
+                    //将graph信息保存在localStorage中
+                    window.localStorage.setItem(graphID, JSON.stringify(object_graphdata));
+                    //将graph provenance record保存在localStorage中
+                    window.localStorage.setItem("prov-" + graphID, JSON.stringify(object_graph_prov));
+                    var ret_graph = draw([], [], [], [], chart);
+                    push_graph_data(ret_graph);
+
+                    $("#saveProgress").attr("disabled", true);
+
+                    // saves the meta data of the graph
+                    chart.graphID = graphID;
+                    chart.title = object_graphdata.title;
+                    chart.desciption = object_graphdata.description;
+                    chart.date = object_graphdata.timest;
+                    $("#span-graphTitle").text("[" + chart.title + "]");
+
+                    $("#row-browsebox").hide();
+                    app.toolBoxView.$el.show();
+
+                    app.browseBoxView.toggleViewMode(false);
+
+                    $("#graph_info").modal('hide');
+                },
+                error: function(xhr) {
+                    console.error("Ajax failed: " + xhr.statusText);
+                    alert('Something went wrong. Please try again.');
+                }
+            });
+            $("#graph_info").modal('hide');
+        }
+    });
   },
 
   getAnalysis: function(graphID, callback) {
     Backbone.ajax({
       type: 'GET',
-      url: remote_server + '/VC/rest/analysis/' + graphID,
+      url: remote_server + '/VC/rest/analysis/' + graphID + "/" + userID,
       success: function(response, status, xhr) {
+          console.log(response);
         // change the type of annot
         if(response.nodes){
           response.nodes.forEach(function(d){
@@ -127,31 +156,48 @@ app.BrowseBoxView = Backbone.View.extend({
   },
 
   getAnalysisList: function() {
-    var userID = readCookie('user_id');
     var self = this;
+    $(".existing-analysis-browse_box_own").remove();
+    $(".existing-analysis-browse_box_contribute").remove();
 
     Backbone.ajax({
-      type: 'GET',
-      url: remote_server + '/VC/rest/analyses/user/' + userID + '/meta',
-      success: function(data) {
-        $(".existing-analysis").remove();
-        data.forEach(function(analysis) {
-          self.makeGraphElement(analysis);
-        });
-      },
-      error: function(xhr) {
-        console.error("Ajax failed: " + xhr.statusText);
-      }
+        type: 'GET',
+        url: remote_server + '/VC/rest/analyses/user/' + userID + '/' + projectID + '/meta',
+        success: function(data) {   
+            if(data){
+                data.forEach(function(analysis) {
+                    self.makeGraphElement(analysis, "browse_box_own");
+                });
+            }
+        },
+        error: function(xhr) {
+            console.error("Ajax failed: " + xhr.statusText);
+        }
+    });
+    
+    Backbone.ajax({
+        type: 'GET',
+        url: remote_server + 'VC/rest/analyses/share/' + userID + '/' + projectID + '/meta',
+        success: function(data) {
+            if(data){
+                data.forEach(function(analysis) {
+                    self.makeGraphElement(analysis, "browse_box_contribute", analysis.authorityType);
+                });
+            }
+        },
+        error: function(xhr) {
+            console.error("Ajax failed: " + xhr.statusText);
+        }
     });
   },
     
-  makeGraphElement: function(analysis) {
+  makeGraphElement: function(analysis, box, level = "4") {
     var div_panel = $("<div></div>", {
       'class': "panel panel-green"
     }).appendTo($("<div></div>", {
-      'class': "existing-analysis col-lg-2 col-md-4",
+      'class': "existing-analysis-"+ box +" col-lg-2 col-md-4",
       'id': "panel_"+analysis.graphID
-    }).appendTo($("#browse_box")));
+    }).appendTo($("#"+box)));
 
     var div_heading = $("<div></div>", {
       'class': "panel-heading"
@@ -205,29 +251,41 @@ app.BrowseBoxView = Backbone.View.extend({
     }).appendTo(div_panel)).before($("<button></button>", {
       'class': "pull-left btn btn-xs btn-outline btn-success btn-view",
       'name': "btn_" + analysis.graphID,
+      'id': "btn_view_" + analysis.graphID,
       'text': "View",
       'title': "View this analysis (read-only)"
     })).before($("<button></button>", {
       'class': "pull-left btn btn-xs btn-outline btn-success btn-checkout",
       'style': "margin-left: 5px",
       'name': "btn_" + analysis.graphID,
+      'id': "btn_checkout_" + analysis.graphID,
       'text': "Checkout",
       'title': "Checkout this analysis for editing"
     })).before($("<button></button>", {
       'class': "btn btn-xs btn-outline btn-danger btn-delete",
       'name': "btn_" + analysis.graphID,
+      'id': "btn_delete_" + analysis.graphID,
       'style': "margin-left: 5px",
       'text': "Delete",
       'title': "Permanently delete this analysis"
     })).after($("<div></div>", {
       'class': "clearfix"
     }));
+    
+    if (level === "0")
+        $("#btn_checkout_" + analysis.graphID).hide();
+    if (level !== "4")
+        $("#btn_delete_" + analysis.graphID).hide();
   },
 
   toggleViewMode: function(_view_flag) {
 
     view_flag = _view_flag;
-
+    $("#saveProgress").show();
+    $("#browseAnalyses").show();
+    $("#simulation").show();
+    $("#projectDetail").show();
+    
     if (view_flag) {
       // If a user click [View] button, the user should not be able to edit the graph
       $("#info").hide();
@@ -242,6 +300,7 @@ app.BrowseBoxView = Backbone.View.extend({
       $("#cancel-link").addClass("disabled");
 
       $("#commitGraph").hide();
+      $("#updateGraph").hide();
       $("#checkoutGraph").show();
 
       $("#span-viewMode").text("(View Only)");
@@ -257,60 +316,227 @@ app.BrowseBoxView = Backbone.View.extend({
       $("#cancel-link").removeClass("disabled");
 
       $("#commitGraph").show();
+      $("#updateGraph").show();
       $("#checkoutGraph").hide();
 
       $("#span-viewMode").text("");
     }
   },
+  
+  parseGraphDataToLocalStorage: function(graph) {
+    
+    var graphinfo = {
+        timest: graph.timest,
+        isshared: graph.isshared,
+        parentgraphid: graph.parentgraphid,
+        description: graph.description,
+        graphID: graph.graphID,
+        title: graph.title,
+        userID: graph.userID,
+        authorityType: graph.authorityType
+    };
+    window.localStorage.setItem(graph.graphID, JSON.stringify(graphinfo));
+    window.localStorage.setItem("prov-" + graph.graphID, JSON.stringify(graph.prov));
+    
+    var nodes = graph.nodes;
+    var edges = graph.edges;
+    
+    var nodes_prov = graph.nodes_prov;
+    var edges_prov = graph.edges_prov;
+        
+    if(nodes){
+        nodes.forEach(function(node){
+            window.localStorage.setItem(node.nodeID, JSON.stringify(node));
+        });
+    }
+    if(nodes_prov){
+        nodes_prov.forEach(function(node_prov){
+            window.localStorage.setItem("prov-" + node_prov.nodeID, JSON.stringify(node_prov));
+        });
+    }
+    if(edges){
+        edges.forEach(function(edge){
+            window.localStorage.setItem(edge.edgeID, JSON.stringify(edge));
+        });
+    }
+    if(edges_prov){
+        edges_prov.forEach(function(edge_prov){
+            window.localStorage.setItem("prov-" + edge_prov.edgeID, JSON.stringify(edge_prov));
+        });
+    }
+  },
+  
+  getInfoFromLocalStorage: function(graphid){   
+    var graph = JSON.parse(window.localStorage.getItem(graphid));
+    var graph_prov = JSON.parse(window.localStorage.getItem("prov-" + graphid));
+    var localdata_str = window.localStorage.valueOf(); 
+    var metadata = new Array();
+    var provdata = new Array();
+    var graphdata = {};
+    if(graph){
+        graphdata = {
+            description: graph.description,
+            graphID: graphid,
+            isshared: graph.isshared,
+            timest: graph.timest,
+            title: graph.title,
+            userID: graph.userID,
+            authorityType: graph.authorityType,
+            parentgraphid: graph_prov.parentgraphid,
+            originalgraphid: graph_prov.originalgraphid
+        };
+        graphdata.edges = new Array();
+        graphdata.nodes = new Array();
+        graphdata.nodes_prov = new Array();
+        graphdata.edges_prov = new Array();
+        
+        for(var i=0; i<localdata_str.length; i=i+1){
+            var key = localdata_str.key(i);
+            var data = localdata_str.getItem(key);
+            if (data.substr(0, 1) === '{' && key.substr(0, 4) === "prov")
+                provdata.push(JSON.parse(data));
+            else if(data.substr(0, 1) === '{')
+                metadata.push(JSON.parse(data));
+        }
+        metadata = metadata.filter(function(data){
+            return (data.graphID===graphid);
+        });  
+        provdata = provdata.filter(function(data){
+            return (data.graphID===graphid);
+        });  
+        
+        metadata.forEach(function(gd){
+            if (gd.hasOwnProperty("edgeID")) graphdata.edges.push(gd);
+            if (gd.hasOwnProperty("nodeID")) graphdata.nodes.push(gd);
+        });
+        provdata.forEach(function(pd){
+            if (pd.hasOwnProperty("edgeID")) graphdata.edges_prov.push(pd);
+            if (pd.hasOwnProperty("nodeID")) graphdata.nodes_prov.push(pd);
+        });
+    }
+    return graphdata;
+  },
+  
+  dataVisualization: function(graphdata, flag=true){
+      // initialises a workbox
+    $("#row-workbox").show();
+    $("#row-browsebox").hide();
+    app.toolBoxView.$el.show();
 
+    app.workBoxView.clearWorkBox();
+
+    // saves the meta data of the graph
+    chart.graphID = graphdata['graphID'];
+    chart.title = graphdata['title'];
+    chart.desciption = graphdata['description'];
+    chart.date = graphdata['timest'];
+
+    var nodes = graphdata['nodes'];
+    var edges = graphdata['edges'];
+    var nodes_prov = graphdata['nodes_prov'];
+    var edges_prov = graphdata['edges_prov'];
+
+    // set up simulations for force-directed graphs
+    var ret_simulation = set_simulation(15, chart.svg.width, chart.svg.height);
+    push_node_style_data(ret_simulation);
+
+    // the simulation used when drawing a force-directed graph
+    chart.simulation = ret_simulation.simulation;
+
+    var ret_graph = draw(nodes, nodes_prov, edges, edges_prov, chart, flag);
+    push_graph_data(ret_graph);
+
+    // start simulation for displaying graphsv
+    chart.simulation = restart_simulation(chart.simulation, false);
+
+    $("#saveProgress").attr("disabled", true);
+
+    $("#span-graphTitle").text("[" + chart.title + "]");
+  },
+    
   viewAnalysis: function(event) {
+      
+    if (!window.localStorage){
+        alert("This browser dose not support localStorage!");
+        return false;
+    }
+    else {
+        var isGetAnalysis = true;
+        var graphID = event.target.attributes.name.value.replace("btn_", "");
+        this.toggleViewMode((event.target.attributes.class.value.indexOf("view") > 0));
+        $("#row-contributorbox").hide();
+        $("#row-mergedgraphbox").hide();
+        var mode = event.target.textContent;
+        if (mode === "Checkout"){
+            var graphdata = app.browseBoxView.getInfoFromLocalStorage(graphID);
+            if(!$.isEmptyObject(graphdata)){
+                if (graphdata.userID !== userID){
+                    $("#updateGraph").hide();
+                }
+                var choice;
+                choice = confirm("You have modified this graph, do you want to continue?");
+                if(choice){
+                    isGetAnalysis = false;
+                    app.browseBoxView.dataVisualization(graphdata, false);
+                }
+                else{
+                    var key;
+                    graphdata.nodes.forEach(function(n){
+                        key = n.nodeID;
+                        if(key) {
+                            window.localStorage.removeItem(key);
+                            window.localStorage.removeItem("prov-"+key);
+                        }  
+                    });
+                    graphdata.edges.forEach(function(e){
+                        key = e.edgeID;
+                        if(key) {
+                            window.localStorage.removeItem(key);
+                            window.localStorage.removeItem("prov-"+key);
+                        }   
+                    });
+                    window.localStorage.removeItem(graphID);
+                    window.localStorage.removeItem("prov-"+graphID);
+                }
+            }
+        }
+        if(isGetAnalysis){
+            this.getAnalysis(graphID, function(data) {
+                if (data.userID !== userID){
+                    $("#updateGraph").hide();
+                }
+                var result = "success";
+                if (result == 'success') {
+                    if (mode === "Checkout")
+                        app.browseBoxView.parseGraphDataToLocalStorage(data);
+                    app.browseBoxView.dataVisualization(data);
+                } else {
+                    alert(result);
+                    return ("Fail");
+                }
+            });
+        }
+    }
+  },
 
-    var graphID = event.target.attributes.name.value.replace("btn_", "");
-
-    this.toggleViewMode((event.target.attributes.class.value.indexOf("view") > 0));
-
-    this.getAnalysis(graphID, function(data) {
-      // validates the json data
-      // var result = validateFile(data);
-      var result = "success";
-      if (result == 'success') {
-        // initialises a workbox
-        $("#row-workbox").show();
-        $("#row-browsebox").hide();
-        app.toolBoxView.$el.show();
-
-        app.workBoxView.clearWorkBox();
-
-        // saves the meta data of the graph
-        chart.graphID = data['graphID'];
-        chart.title = data['title'];
-        chart.desciption = data['description'];
-        chart.date = data['timest'];
-
-        var nodes = data['nodes'];
-        var edges = data['edges'];
-
-        // set up simulations for force-directed graphs
-        var ret_simulation = set_simulation(15, chart.svg.width, chart.svg.height);
-        push_node_style_data(ret_simulation);
-
-        // the simulation used when drawing a force-directed graph
-        chart.simulation = ret_simulation.simulation;
-
-        var ret_graph = draw(nodes, edges, chart);
-        push_graph_data(ret_graph);
-
-        // start simulation for displaying graphsv
-        chart.simulation = restart_simulation(chart.simulation, false);
-
-        $("#saveProgress").attr("disabled", true);
-
-        $("#span-graphTitle").text("[" + chart.title + "]");
-      } else {
-        alert(result);
-        return ("Fail");
-      }
-    });
+  createNodeProv: function(node) {
+      var nodeprov = {
+          nodeID: node.nodeID,
+          parentnodeid: null,
+          originalnodeid: null,
+          graphID: node.graphID
+      };
+      return nodeprov;
+  },
+  
+  createEdgeProv: function(edge) {
+      var edgeprov = {
+          edgeID: edge.edgeID,
+          parentedgeid: null,
+          originaledgeid: null,
+          graphID: edge.graphID
+      };
+      return edgeprov;
   },
 
   selectFile: function() {
@@ -321,24 +547,59 @@ app.BrowseBoxView = Backbone.View.extend({
 
     return input_file;
   },
+  
+  createNewGraphFromData: function(object_graphdata, object_graph_prov, graphType){
+
+    Backbone.ajax({
+        type: 'POST',
+        url: remote_server + '/VC/rest/save',
+        contentType: 'application/json',
+        data: JSON.stringify(object_graphdata),
+        success: function(result) {
+            confirm("Analysis [" + object_graphdata['title'] + "] saved.");
+        },
+        error: function(xhr) {
+            alert('Something went wrong. Please try again.');
+            console.log(xhr);
+        }
+    });
+
+    Backbone.ajax({
+        type: 'GET',
+        url: remote_server + "/VC/rest/project/" + projectID + "/meta",
+        success: function(data) {
+            if (data) {
+                Backbone.ajax({
+                    type: 'POST',
+                    url: remote_server + '/VC/rest/graphprov/save/' + graphType,
+                    contentType: 'application/json',
+                    data: JSON.stringify(object_graph_prov)
+                });
+            }
+        },
+        error: function(xhr) {
+            alert("No project exists with this id in database.");
+        }
+    });
+  },
 
   importFromFile: function(event) {
     readFile(event.target.files, function(jsonData) {
       var graphID = jsonData['graphID'];
-      var userID = readCookie('user_id');
 
       var existing = null;
 
       // 1. Check this graph belongs to the user or not
       Backbone.ajax({
         type: 'GET',
-        url: remote_server + "/VC/rest/analyses/user/" + userID + "/meta",
+        url: remote_server + "/VC/rest/analyses/user/" + userID + "/noprojectid/meta",
         success: function(data) {
           if (data) {
+            //匿名回调函数
             existing = data.find(function(d) {
               return d.graphID == graphID;
             });
-
+            //_用来调用函数包,相当于jquery的$
             if(!_.isEmpty(existing)){
               alert("A graph exists with this id.");
             }
@@ -364,67 +625,60 @@ app.BrowseBoxView = Backbone.View.extend({
                 console.log(xhr);
               },
               complete: function(xhr) {
-                if (xhr.status == 404) {
-                  // 3. Registers a new graph using jsonData
+                  if (xhr.status == 404) { //404表示未找到与文件中相同的图
+                // var graphID = jsonData['graphID'];
                   var title = jsonData['title'];
                   var description = jsonData['description'];
-
-                  var object = {
-                    "graphID": graphID,
-                    "userID": userID,
-                    "timest": generateDate(),
-                    "title": title.trim(),
-                    "description": description.trim(),
-                    "isshared": false,
-                    "parentgraphid": null
+                  var object_graphdata = {
+                      "graphID": graphID,
+                      "userID": userID,
+                      "timest": generateDate(),
+                      "title": title.trim(),
+                      "description": description.trim(),
+                      "projectID": projectID,
+                      "isshared": false,
+                      "parentgraphid": null
                   };
 
+                  var object_graph_prov = {
+                      "graphID": graphID,    
+                      "parentgraphid": null,
+                      "originalgraphid": null
+                  };
+                    
                   Backbone.ajax({
-                    type: 'POST',
-                    url: remote_server + '/VC/rest/new',
-                    contentType: 'application/json',
-                    data: JSON.stringify(object),
-                    success: function(result) {
+                      type: 'POST',
+                      url: remote_server + '/VC/rest/new',
+                      contentType: 'application/json',
+                      data: JSON.stringify(object_graphdata),
+                      success: function(result) {
+                          // initialises a workbox
+                          $("#row-workbox").show();
+                          app.workBoxView.clearWorkBox();
+                          $("#row-workbox").hide();
+                          // saves the meta data of the graph
+                          var nodes = jsonData['nodes'];
+                          var edges = jsonData['edges'];
+                          var nodes_prov = [];
+                          nodes.forEach(function(node){
+                              nodes_prov.push(app.browseBoxView.createNodeProv(node));
+                          });
+                          var edges_prov = [];
+                          edges.forEach(function(edge){
+                              edges_prov.push(app.browseBoxView.createEdgeProv(edge));
+                          });
 
-                      // 4. The graph is drawn in hidden workBox in order to call the endpoint of every node and edge
-                      // initialises a workbox
-                      $("#row-workbox").show();
-
-                      app.workBoxView.clearWorkBox();
-
-                      $("#row-workbox").hide();
-
-                      // saves the meta data of the graph
-                      var nodes = jsonData['nodes'];
-                      var edges = jsonData['edges'];
-
-                      var ret_graph = draw(nodes, edges, chart);
-                      push_graph_data(ret_graph);
-                    },
-                    error: function(xhr) {
-                      console.error("Ajax failed: " + xhr.statusText);
-                      alert('Something went wrong. Please try again.');
-                    }
+                          var ret_graph = draw(nodes, nodes_prov, edges, edges_prov, chart);
+                          push_graph_data(ret_graph);
+                      },
+                      error: function(xhr) {
+                          console.error("Ajax failed: " + xhr.statusText);
+                          alert('Something went wrong. Please try again.');
+                      }
                   });
-
-                  // 5. Saves the graph in database
-                  Backbone.ajax({
-                    type: 'POST',
-                    url: remote_server + '/VC/rest/save',
-                    //dataType: 'text',
-                    contentType: 'application/json',
-                    data: JSON.stringify(object),
-                    success: function(result) {
-                      confirm("Analysis [" + title + "] saved.");
-                    },
-                    error: function(xhr) {
-                      alert('Something went wrong. Please try again.');
-                      console.log(xhr);
-                    }
-                  });
-
-                  // 6. Creates a panel in the browsebox
-                  app.browseBoxView.makeGraphElement(object);
+                    // 3. Registers a new graph using jsonData
+                  app.browseBoxView.createNewGraphFromData(object_graphdata, object_graph_prov, 0);
+                  app.browseBoxView.makeGraphElement(object_graphdata, "browse_box_own");
                 }
               }
             });
@@ -491,17 +745,33 @@ app.BrowseBoxView = Backbone.View.extend({
   
   deleteAnalysis: function(event) {
       if(confirm("Permanently delete this analysis?")) {
-      var graphID = event.target.attributes.name.value.replace("btn_", "");
-      Backbone.ajax({
-      type: 'DELETE',
-      url: remote_server + '/VC/rest/analysis/' + graphID,
-      success: function(data) {
-          $("#panel_"+graphID).remove();
-      },
-      error: function(xhr) {
-        console.error("Deleting graph failed: " + xhr.statusText);
-      }
-    });
+        var graphID = event.target.attributes.name.value.replace("btn_", "");
+        Backbone.ajax({
+            type: 'DELETE',
+            url: remote_server + '/VC/rest/analysis/' + graphID,
+            success: function(data) {
+                $("#panel_"+graphID).remove();
+            },
+            error: function(xhr) {
+              console.error("Deleting graph failed: " + xhr.statusText);
+            },
+            complete: function(){
+              var graphdata = app.browseBoxView.getInfoFromLocalStorage(graphID);
+              //clean local data
+              if (!$.isEmptyObject(graphdata)){
+                  graphdata.nodes.forEach(function(n){
+                      window.localStorage.removeItem(n.nodeID);
+                      window.localStorage.removeItem("prov-" + n.nodeID);
+                  });
+                  graphdata.edges.forEach(function(e){
+                      window.localStorage.removeItem(e.edgeID); 
+                      window.localStorage.removeItem("prov-" + e.edgeID);
+                  }); 
+                  window.localStorage.removeItem(graphID);
+                  window.localStorage.removeItem("prov-" + graphID);
+              }
+            }
+        });
       }
   }
 });

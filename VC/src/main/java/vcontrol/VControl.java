@@ -25,7 +25,7 @@ import javax.crypto.spec.PBEKeySpec;
 import org.json.simple.JSONObject;
 
 public class VControl {
-
+    
     /**
      * @param map the hashmap which contains the keys from the JSON of an edge and their respective values
      * @return a hashmap with key: 'response' and value: 'success' if the data has been put into the db or 'fail' if some error occurred
@@ -58,6 +58,33 @@ public class VControl {
         return map;
     }
 
+    public HashMap onAddEdgesProv(HashMap map) {
+
+        String edgeID = map.get("edgeID").toString();
+
+        String parentedgeid = null;
+        if(map.get("parentedgeid") != null) {
+            parentedgeid = map.get("parentedgeid").toString();
+        }
+
+        String originaledgeid = null;
+        if(map.get("originaledgeid") != null) {
+            originaledgeid = map.get("originaledgeid").toString();
+        }
+
+        int ismergable = Integer.parseInt(map.get("ismergable").toString().substring(0, 1));
+
+        String graphID = map.get("graphID").toString();
+        
+        DBQuery dbQuery = new DBQuery();
+        dbQuery.insertEdgeProv(edgeID, parentedgeid, originaledgeid, ismergable, graphID);
+
+        map = new HashMap();
+        map.put("response","success");
+
+        return map;
+    }
+    
     /**
      * @param map the hashmap which contains the keys from the JSON of a node and their respective values
      * @return a hashmap with key: 'response' and value: 'success' if the data has been put into the db or 'fail' if some error occurred
@@ -133,6 +160,33 @@ public class VControl {
         return map;
     }
 
+    public HashMap onAddNodesProv(HashMap map) {
+        
+        String nodeID = map.get("nodeID").toString();
+
+        String parentnodeid = null;
+        if(map.get("parentnodeid") != null) {
+            parentnodeid = map.get("parentnodeid").toString();
+        }
+
+        String originalnodeid = null;
+        if(map.get("originalnodeid") != null) {
+            originalnodeid = map.get("originalnodeid").toString();
+        }
+
+        int ismergable = Integer.parseInt(map.get("ismergable").toString().substring(0, 1));
+
+        String graphID = map.get("graphID").toString();
+        
+        DBQuery dbQuery = new DBQuery();
+        dbQuery.insertNodeProv(nodeID, parentnodeid, originalnodeid, ismergable, graphID);
+
+        map = new HashMap();
+        map.put("response","success");
+
+        return map;
+    }
+    
     /**
      * @param map the hashmap which contains the keys from the JSON of a graph
      */
@@ -141,6 +195,7 @@ public class VControl {
         String graphID = map.get("graphID").toString();
         String userID = map.get("userID").toString();
         String title = map.get("title").toString();
+        String projectID = map.get("projectID").toString();
         String description = "";
         if(null != map.get("description")) {
             description = map.get("description").toString();
@@ -153,7 +208,8 @@ public class VControl {
         }
 
         DBQuery dbQuery = new DBQuery();
-        dbQuery.insertGraph(graphID, userID, timestamp, title, description, isShared, parentGraphID);
+        dbQuery.insertGraph(graphID, userID, timestamp, title, description, isShared, parentGraphID, projectID);
+        dbQuery.insertGraphAuthority(graphID, userID, 4, projectID);
     }
 
     /**
@@ -318,5 +374,35 @@ public class VControl {
             bytes[i] = (byte)Integer.parseInt(hex.substring(2 * i, 2 * i + 2), 16);
         }
         return bytes;
+    }
+    
+    public void onAddProject(HashMap map) {
+        TimeHelper timeHelper = new TimeHelper();
+        String projectID = map.get("projectID").toString();
+        String userID = map.get("userID").toString();
+        String title = map.get("title").toString();
+        String description = null;
+        if(null != map.get("description")) {
+            description = map.get("description").toString();
+        }
+        Timestamp timestamp = timeHelper.formatDateCIS(map.get("timest").toString());
+
+        DBQuery dbQuery = new DBQuery();
+        dbQuery.insertProject(projectID, userID, timestamp, title, description);
+        dbQuery.insertProjectAuthority(projectID, userID, true);
+    }
+    
+    public void onAddGraphProv(HashMap map, int type) {
+        String graphID = map.get("graphID").toString();
+        String parentgraphid = null;
+        if(null != map.get("parentgraphid")) {
+            parentgraphid = map.get("parentgraphid").toString();
+        }
+        String originalgraphid = null;
+        if(null != map.get("originalgraphid")) {
+            originalgraphid = map.get("originalgraphid").toString();
+        }
+        DBQuery dbQuery = new DBQuery();
+        dbQuery.insertGraphProv(graphID, parentgraphid, originalgraphid, type);
     }
 }

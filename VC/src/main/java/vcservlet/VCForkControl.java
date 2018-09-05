@@ -14,6 +14,7 @@ import vcontrol.VControl;
 import java.util.HashMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.*;
 
 public class VCForkControl {
 
@@ -45,6 +46,19 @@ public class VCForkControl {
         String response = jsh.convertInputJson(map);
         return response;
     }
+    
+    public String evalJSONEdgeProv(String jsonInput) {
+        log.log(Level.INFO, "*** VERSION CONTROL SERVICE - SPLIT JSON EDGE PROVENANCE RECORD***");
+
+        jsonInput = jsonInput.replaceAll("\"\"", "null");
+        HashMap map = jsh.convertInputMap(jsonInput);
+
+        VControl vc = new VControl();
+        map = vc.onAddEdgesProv(map);
+
+        String response = jsh.convertInputJson(map);
+        return response;
+    }
 
     /**
      * @param jsonInput the json for a node coming from the front-end
@@ -58,6 +72,19 @@ public class VCForkControl {
 
         VControl vc = new VControl();
         map = vc.onAddNodes(map);
+
+        String response = jsh.convertInputJson(map);
+        return response;
+    }
+    
+    public String evalJSONNodeProv(String jsonInput) {
+        log.log(Level.INFO, "*** VERSION CONTROL SERVICE - SPLIT JSON NODE PROVENANCE RECORD");
+
+        jsonInput = jsonInput.replaceAll("\"\"", "null");
+        HashMap map = jsh.convertInputMap(jsonInput);
+
+        VControl vc = new VControl();
+        map = vc.onAddNodesProv(map);
 
         String response = jsh.convertInputJson(map);
         return response;
@@ -78,6 +105,30 @@ public class VCForkControl {
         log.log(Level.INFO, "*** VERSION CONTROL SERVICE - NEW GRAPH ADDED SUCCESSFULLY;");
     }
 
+    public void evalJSONProject(String project) {
+        log.log(Level.INFO, "*** VERSION CONTROL SERVICE - SPLIT JSON PROJECT");
+
+        project = project.replaceAll("\"\"", "null");
+        HashMap map = jsh.convertInputMap(project);
+
+        VControl vc = new VControl();
+        vc.onAddProject(map);
+
+        log.log(Level.INFO, "*** VERSION CONTROL SERVICE - NEW PROJECT ADDED SUCCESSFULLY;");
+    }
+    
+    public void evalJSONGraphProv(String graphProvInfo, int type) {
+        log.log(Level.INFO, "*** VERSION CONTROL SERVICE - SPLIT JSON GRAPHPROV");
+
+        graphProvInfo = graphProvInfo.replaceAll("\"\"", "null");
+        HashMap map = jsh.convertInputMap(graphProvInfo);
+
+        VControl vc = new VControl();
+        vc.onAddGraphProv(map, type);
+
+        log.log(Level.INFO, "*** VERSION CONTROL SERVICE - NEW GRAPHPROV ADDED SUCCESSFULLY;");
+    }
+    
     /**
      * @param credentials the user credentials in a json string format
      * @return a string indicating whether the user has been validated successfully

@@ -75,12 +75,15 @@ function set_zoom(svg) {
   return ret;
 }
 
-function draw(nodes, edges, chart) {
+function draw(nodes, nodes_prov, edges, edges_prov, chart, flag=true) {
 
   var ret = {};
 
   ret.nodes = nodes;
   ret.edges = edges;
+
+  ret.nodes_prov = nodes_prov;
+  ret.edges_prov = edges_prov;
 
   ret.node = chart.zoom.append("g")
     .attr("class", "nodes")
@@ -157,9 +160,9 @@ function draw(nodes, edges, chart) {
 
   ret.node.each(function(data) {
     // debugger;
-    var attr = app.workBoxView.createNodeModelFromData(data);
+    var attr = app.workBoxView.createNodeModelFromData(data,flag);
   });
-
+  
   ret.edge = chart.zoom.append("g")
     .attr("class", "links")
     .selectAll("line")
@@ -167,7 +170,7 @@ function draw(nodes, edges, chart) {
     .enter().append("line")
     .attr("marker-end", "url(#triangle)")
     .attr("class", function(d) {
-      var className = app.workBoxView.createEdgeModelFromData(d);
+      var className = app.workBoxView.createEdgeModelFromData(d,flag);
       // debugger;
       if (className.includes('pref-')) {
         this.setAttribute('marker-end', 'url(#pref-triangle)');
@@ -179,6 +182,15 @@ function draw(nodes, edges, chart) {
 
       return className;
     }).attr("style", "pointer-events: none");
+
+  if(nodes_prov)
+      ret.nodes_prov.forEach(function(node_prov) {
+          app.workBoxView.createNodeProvModelFromData(node_prov,flag);
+      });
+  if(edges_prov)
+      ret.edges_prov.forEach(function(edge_prov) {
+          app.workBoxView.createEdgeProvModelFromData(edge_prov,flag);
+      });
 
   $("#pref-triangle").attr("refX", chart.node_style_data.a_width/2);
   $("#con-triangle").attr("refX", chart.node_style_data.a_width/2);
@@ -262,7 +274,7 @@ function restart_simulation(simulation, restart) {
   return simulation;
 }
 
-function addNewNode(attr, x, y) {
+function addNewNode(attr, prov, x, y) {
 
   var transform = $(".zoom").attr("transform");
 
@@ -301,9 +313,18 @@ function addNewNode(attr, x, y) {
     "y": ((y - 190 - translate_y) / scale),
     "fx": ((x - 60 - translate_x) / scale),
     "fy": ((y - 190 - translate_y) / scale)
-  }
+  };
+
+  var dataprov = {
+      "nodeID": prov['nodeID'],
+      "parentnodeid": prov['parentnodeid'],
+      "originalnodeid": prov['originalnodeid'],
+      "ismergable": prov['ismergable'],
+      "graphID": prov['graphID']
+  };
 
   chart.nodes.push(data);
+  chart.nodes_prov.push(dataprov);
 
   // Apply the general update pattern to the nodes.
   chart.node = chart.node.data(chart.nodes, function(d) {
@@ -388,7 +409,12 @@ function deleteNode(index) {
   return ret;
 }
 
-function addNewEdge(attr) {
+function deleteNodeProv(index) {
+    var ret = chart.nodes_prov.splice(index, 1);
+    return ret;
+}
+
+function addNewEdge(attr, prov) {
 
   // debugger;
 
@@ -398,8 +424,17 @@ function addNewEdge(attr) {
     "formEdgeID": null,
     "edgeID": attr['edgeID']
   }
+  
+  var data_prov = {
+      "edgeID": prov['edgeID'],
+      "parentedgeid": prov['parentedgeid'],
+      "originaledgeid": prov['originaledgeid'],
+      "ismergable": prov['ismergable'],
+      "graphID": prov['graphID']
+  };
 
   chart.edges.push(data);
+  chart.edges_prov.push(data_prov);
 
   // Apply the general update pattern to the edges.
   chart.edge = chart.edge.data(chart.edges, function(d) {
@@ -433,7 +468,8 @@ function deleteEdge(id) {
 
   chart.edges = chart.edges.filter(function(e) {
     if (e['source']['nodeID'] == id || e['target']['nodeID'] == id) {
-      deleted_edges.push(e);
+        deleted_edges.push(e);
+        chart.edges_prov.splice(e.index, 1);
     }
     return (e['source']['nodeID'] != id && e['target']['nodeID'] != id);
   });
@@ -446,3 +482,50 @@ function deleteEdge(id) {
 
   return deleted_edges;
 }
+
+  function deleteEdges(edgeid, callback){
+      Backbone.ajax({
+          type: 'DELETE',
+          url: remote_server + '/VC/rest/edge/' + edgeid,
+          success: function(response, status, xhr){
+              callback(response, status, xhr);
+          },
+          error: function(xhr) {
+              console.error("Ajax failed: " + xhr.statusText);
+          }
+      });
+      
+      Backbone.ajax({
+          type: 'DELETE',
+          url: remote_server + '/VC/rest/edge_prov/' + edgeid,
+          success: function(response, status, xhr){
+              callback(response, status, xhr);
+          },
+          error: function(xhr) {
+              console.error("Ajax failed: " + xhr.statusText);
+          }
+      });
+  }
+
+  function deleteNodes(nodeid, callback){
+      Backbone.ajax({
+          type: 'DELETE',
+          url: remote_server + '/VC/rest/node/' + nodeid,
+          success: function(response, status, xhr){
+              callback(response, status, xhr);
+          },
+          error: function(xhr) {
+              console.error("Ajax failed: " + xhr.statusText);
+          }
+      });
+      
+      Backbone.ajax({
+          type: 'DELETE',
+          url: remote_server + '/VC/rest/node_prov/' + nodeid,
+          success: function(response, status, xhr){
+          },
+          error: function(xhr) {
+              console.error("Ajax failed: " + xhr.statusText);
+          }
+      });
+  }

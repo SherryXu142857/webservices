@@ -42,6 +42,8 @@ function push_graph_data(ret){
 
 	chart.nodes = ret.nodes || [];
 	chart.edges = ret.edges || [];
+        chart.nodes_prov = ret.nodes_prov || [];
+        chart.edges_prov = ret.edges_prov || [];
 
 	if(ret.node){
 		chart.node = ret.node;

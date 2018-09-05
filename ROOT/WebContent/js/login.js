@@ -1,4 +1,5 @@
 $("#login").on("click", function(event){
+   //preventDefaulf()防止点击事件打开url
    event.preventDefault();
    var uname = document.getElementById("uname").value;
    var psw = document.getElementById("psw").value;

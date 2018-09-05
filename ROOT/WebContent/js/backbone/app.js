@@ -7,6 +7,9 @@ app.browseBoxView;
 //app.reqBoxView;
 app.evalBoxView;
 app.vocabularyBoxView;
+app.projectBoxView;
+app.mergedgraphBoxView;
+app.contributorBoxView;
 //app.prefBoxView;
 //app.moiraBoxView;
 //app.chatBoxView;
@@ -14,13 +17,13 @@ app.vocabularyBoxView;
 $(function(){
 	// new app.AppView();
 	app.workBoxView = new app.WorkBoxView();
-	app.browseBoxView = new app.BrowseBoxView();
 
 	//app.reqBoxView = new app.ReqBoxView();
 	app.toolBoxView = new app.ToolBoxView();
 	app.infoBoxView = new app.InfoBoxView();
 	app.evalBoxView = new app.EvalBoxView();
 	app.vocabularyBoxView = new app.VocabularyBoxView();
+        app.projectBoxView = new app.ProjectBoxView();
 	//app.prefBoxView = new app.PrefBoxView();
 	//app.moiraBoxView = new app.MoiraBoxView();
 	//app.chatBoxView = new app.ChatBoxView();

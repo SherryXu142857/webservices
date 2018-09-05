@@ -86,20 +86,228 @@ public class DBQuery {
         dbcn.forceClose();
     }
 
-    //the query to insert a new graph into the database
-    public void insertGraph(String graphid, String userid, Timestamp timest, String title, String description, boolean isshared, String parentgraphid){
+    public void insertProject(String projectid, String userid, Timestamp timest, String title, String description){
         String sql;
-        sql = "INSERT INTO CISPACES_GRAPH(graphid, userid, timest, title, description, isshared, parentgraphid) VALUES "
+        sql = "INSERT INTO CISPACES_PROJECT(projectid, userid, timest, title, description) VALUES "
+                + "( '" + projectid + "' ,"
+                + " '" + userid + "' ,"
+                + " '" + timest + "' ,"
+                + " '" + title +  "' ,"
+                + " '" + description +"'"
+                +" )";
+        
+        System.out.println("DBQuery.insertProject: "+sql);
+        dbcn.updateSQL(sql);
+    }
+    
+    public boolean deleteProject(String projectID) {
+        //ToDo - get nodeIds and delete from CISPACES_INFOPROV
+        String[] tables = {"CISPACES_PROJECT", "CISPACES_PROJECT_AUTHORITY"};
+        String sql;
+        for(String table : tables) {
+            sql = "DELETE FROM " + table + " WHERE projectid = '" + projectID + "'";
+            if(!dbcn.updateSQL(sql)) {
+                System.out.println("Failed to delete Graph from "+table);
+                return false;
+            }
+        }
+        
+        String sql1 = "SELECT graphid FROM CISPACES_GRAPH WHERE projectid = '" + projectID + "'";
+        ArrayList<HashMap<String, Object>> graphs = dbcn.execSQL(sql1);
+        if(!graphs.isEmpty()){
+            for(HashMap graph : graphs){
+                if(!this.deleteAnalysis((String)graph.get("graphid")))
+                    return false;
+            }
+        }
+        return true;       
+    }
+    
+    public void insertProjectAuthority(String projectid, String userid, boolean isowner){
+        String sql;
+        sql = "INSERT INTO CISPACES_PROJECT_AUTHORITY(projectid, userid, isowner) VALUES "
+                + "( '" + projectid + "' ,"
+                + " '" + userid + "' ,"
+                + " '" + isowner + "'"
+                +" )";
+        System.out.println("DBQuery.insertProjectAuthority: "+sql);
+        dbcn.updateSQL(sql);
+    }
+    
+    public String getProjectMeta(String projectID) {
+        System.out.println("Fetching project metadata for projectid: "+projectID);
+        String getMetaSql = "SELECT * FROM CISPACES_PROJECT WHERE PROJECTID = '" + projectID + "'";
+        ArrayList<HashMap<String, Object>> projectMeta = dbcn.execSQL(getMetaSql);
+        
+        if(!projectMeta.isEmpty()) {
+            JSONObject jsonProject = new JSONObject();
+            jsonProject.put("projectID", (String) projectMeta.get(0).get("projectid"));
+            jsonProject.put("userID", (String) projectMeta.get(0).get("userid"));
+            jsonProject.put("timest", (String) projectMeta.get(0).get("timest"));
+            jsonProject.put("title", (String) projectMeta.get(0).get("title"));
+            jsonProject.put("description", (String) projectMeta.get(0).get("description"));
+            return jsonProject.toString();
+        }
+        else {
+            return null; //Not found
+        }
+    }
+    
+    public String getProjectMetaByUser(String userID){
+        System.out.println("Fetching project metadata by userid: " + userID);
+        JSONArray jsonProjectMetaArray = new JSONArray();
+        String sql1 = "SELECT * FROM CISPACES_PROJECT_AUTHORITY WHERE USERID = '" +  userID + "'"; 
+        ArrayList<HashMap<String,Object>> projects = dbcn.execSQL(sql1);
+        for(HashMap project : projects){
+            String sql2 = "SELECT * FROM CISPACES_PROJECT WHERE PROJECTID = '" + project.get("projectid") + "'";
+            System.out.println(sql2);
+            ArrayList<HashMap<String,Object>> projectinfo = dbcn.execSQL(sql2);
+            String userid = (String) projectinfo.get(0).get("userid");
+            JSONObject Project = new JSONObject();
+            Project.put("projectID", (String) project.get("projectid"));
+            Project.put("userID", userid);
+            Project.put("timest", (String) projectinfo.get(0).get("timest"));
+            Project.put("title", (String) projectinfo.get(0).get("title"));
+            Project.put("description", (String) projectinfo.get(0).get("description"));
+            Project.put("isowner", (String) project.get("isowner"));
+            
+            String sql3 = "SELECT USERNAME FROM CISPACES_USERS WHERE USER_ID = '" + userid + "'";
+            ArrayList<HashMap<String,Object>> username = dbcn.execSQL(sql3);
+            Project.put("userName", (String) username.get(0).get("username"));
+            jsonProjectMetaArray.add(Project);  
+        }
+
+        return jsonProjectMetaArray.toJSONString();
+    }
+    
+    public HashMap constructGraphData(ArrayList<HashMap<String,Object>> graphdata){
+        String graphID = (String)graphdata.get(0).get("graphid");
+        HashMap graphMeta = new HashMap<String, String>();
+        graphMeta.put("graphID", graphID);
+        graphMeta.put("title", (String) graphdata.get(0).get("title"));
+        graphMeta.put("description", (String) graphdata.get(0).get("description"));
+        graphMeta.put("parentgraphid", (String) graphdata.get(0).get("parentgraphid"));
+        graphMeta.put("originalgraphid", (String) graphdata.get(0).get("originalgraphid"));
+
+        Iterator<HashMap<String,Object>> iter;
+        
+        HashMap nodesMeta = new HashMap<String, HashMap<String,Object>>();
+        String getNodesSql = "SELECT N.*, NP.PARENTNODEID, NP.ORIGINALNODEID, NP.ISMERGABLE FROM CISPACES_NODE N, CISPACES_NODE_PROV NP WHERE N.NODEID = NP.NODEID AND N.GRAPHID = '" + graphID + "' AND NP.ISMERGABLE = 1";
+        ArrayList<HashMap<String,Object>> graphsnodes = dbcn.execSQL(getNodesSql);
+        iter = graphsnodes.iterator();
+        for(; iter.hasNext();){
+            HashMap nodeMeta = iter.next();
+            nodesMeta.put(nodeMeta.get("nodeid"), nodeMeta);
+        }
+        graphMeta.put("nodesMeta", nodesMeta); 
+        
+        HashMap edgesMeta = new HashMap<String, HashMap<String,Object>>();
+        String getEdgesSql = "SELECT E.*, EP.PARENTEDGEID, EP.ORIGINALEDGEID, EP.ISMERGABLE FROM CISPACES_EDGE E, CISPACES_EDGE_PROV EP WHERE EP.EDGEID = E.EDGEID AND E.GRAPHID = '" + graphID + "' AND EP.ISMERGABLE = 1";
+        ArrayList<HashMap<String,Object>> graphsedges = dbcn.execSQL(getEdgesSql);
+        iter = graphsedges.iterator();
+        for(; iter.hasNext();){
+            HashMap edgeMeta = iter.next();
+            edgesMeta.put(edgeMeta.get("edgeid"), edgeMeta);
+        }
+        graphMeta.put("edgesMeta", edgesMeta); 
+        
+        return graphMeta;
+    }
+    
+    public HashMap getOriginalAnalysis(ArrayList graphIDList){
+        HashMap OriginalGraphMeta = new HashMap();
+        String sql;
+        Iterator<String> iter = graphIDList.iterator();
+        for(; iter.hasNext();){
+            sql = "SELECT G.GRAPHID, G.TITLE, G.DESCRIPTION, GP.PARENTGRAPHID, GP.ORIGINALGRAPHID FROM CISPACES_GRAPH G, CISPACES_GRAPH_PROV GP WHERE G.GRAPHID = GP.GRAPHID AND G.GRAPHID = '" + iter.next() + "'";
+            ArrayList<HashMap<String,Object>> originalGraph = dbcn.execSQL(sql);
+            if(!originalGraph.isEmpty()){
+                HashMap originalGraphMeta = constructGraphData(originalGraph);
+                OriginalGraphMeta.put((String)originalGraph.get(0).get("graphid"), originalGraphMeta);
+            }
+            else return null;
+        }
+        return OriginalGraphMeta;
+    }
+    
+    public HashMap getSubGraphs(String projectID){
+        HashMap subGraphMeta = new HashMap();
+        String sql = "SELECT DISTINCT USERID FROM CISPACES_GRAPH WHERE PROJECTID = '" + projectID + "'";
+        ArrayList<HashMap<String,Object>> contributors = dbcn.execSQL(sql);
+        if(!contributors.isEmpty()){
+            for(HashMap c : contributors){
+                String sql1 = "SELECT G.GRAPHID, G.TITLE, G.DESCRIPTION, GP.PARENTGRAPHID, GP.ORIGINALGRAPHID FROM CISPACES_GRAPH G, CISPACES_GRAPH_PROV GP WHERE G.GRAPHID = GP.GRAPHID AND G.USERID = '" + c.get("userid") + "' AND G.PROJECTID = '" + projectID + "' AND GP.TYPE = 0 ORDER BY G.TIMEST DESC OFFSET 0 ROWS FETCH NEXT 1 ROWS ONLY";
+                ArrayList<HashMap<String,Object>> subgraph = dbcn.execSQL(sql1);
+                if(!subgraph.isEmpty()){
+                    HashMap graphMeta = constructGraphData(subgraph);
+                    subGraphMeta.put((String)subgraph.get(0).get("graphid"), graphMeta); 
+                }
+            }
+            return subGraphMeta;
+        }
+        else return null;
+    }
+    
+    public String getContributorsList(String userID, String projectID) {
+        JSONArray jsonAnalysesMetaArray = new JSONArray();
+        String sql1 = "SELECT DISTINCT USERID FROM CISPACES_PROJECT_AUTHORITY WHERE USERID <> '"+ userID + "' AND PROJECTID = '" + projectID + "' GROUP BY USERID";
+        ArrayList<HashMap<String,Object>> users = dbcn.execSQL(sql1);
+        if(!users.isEmpty()){
+            for(HashMap user : users){
+                String sql2 = "SELECT USERNAME FROM CISPACES_USERS WHERE USER_ID = '"+ user.get("userid") + "'";
+                ArrayList<HashMap<String,Object>> username = dbcn.execSQL(sql2);
+                JSONObject jsonGraph = new JSONObject();
+                jsonGraph.put("userID", (String) user.get("userid"));
+                jsonGraph.put("userName", (String) username.get(0).get("username"));
+
+                jsonAnalysesMetaArray.add(jsonGraph);                   
+            }
+            return jsonAnalysesMetaArray.toJSONString();
+        }
+        else return null;
+    }
+    
+    //the query to insert a new graph into the database
+    public void insertGraph(String graphid, String userid, Timestamp timest, String title, String description, boolean isshared, String parentgraphid, String projectid){
+        String sql;
+        sql = "INSERT INTO CISPACES_GRAPH(graphid, userid, timest, title, description, isshared, parentgraphid, projectid) VALUES "
                 + "( '" + graphid + "' ,"
                 + " '" + userid + "' ,"
                 + " '" + timest + "' ,"
                 + " '" + title +  "' ,"
                 + " '" + description +"' ,"
                 + " '" + isshared + "' ,"
-                + " '" + parentgraphid + "'"
+                + " '" + parentgraphid + "',"
+                + " '" + projectid + "'"
                 +" )";
-
-        System.out.println(sql);
+        
+        System.out.println("DBQuery.insertGraph: "+sql);
+        dbcn.updateSQL(sql);
+    }
+    
+    public void insertGraphAuthority(String graphid, String userid, int authoritytype, String projectid){
+        String sql;
+        sql = "INSERT INTO CISPACES_GRAPH_AUTHORITY(graphid, userid, authoritytype, projectid) VALUES "
+                + "( '" + graphid + "' ,"
+                + " '" + userid + "' ,"
+                + authoritytype + ","
+                + " '" + projectid + "'"
+                +" )";
+        
+        System.out.println("DBQuery.insertGraphAuthority: "+sql);
+        dbcn.updateSQL(sql);
+    }
+    
+    public void insertGraphProv(String graphID, String parentgraphid, String originalgraphid, int type){
+        String sql;
+        sql = "INSERT INTO CISPACES_GRAPH_PROV(graphid, parentgraphid, originalgraphid, type) VALUES "
+                + "( '" + graphID + "' ,"
+                + " '" + parentgraphid + "' ,"
+                + " '" + originalgraphid +  "' ,"
+                + type
+                +" )";
+        
+        System.out.println("DBQuery.insertGraphProv: "+sql);
         dbcn.updateSQL(sql);
     }
 
@@ -142,6 +350,27 @@ public class DBQuery {
         dbcn.updateSQL(sql);
     }
 
+    public void insertNodeProv(String nodeID, String parentnodeid, String originalnodeid, int ismergable, String graphID){
+        String sql;
+        sql = "Select * from CISPACES_NODE_PROV WHERE nodeid = " + "'" + nodeID + "'";
+        ArrayList<HashMap<String,Object>> rs = dbcn.execSQL(sql);
+        if(rs.isEmpty()){
+            System.out.println("NODE PROVENANCE RECORD DOESNT EXIST");
+            sql = "INSERT INTO CISPACES_NODE_PROV VALUES"
+                    + "( '" + nodeID + "', " 
+                    + " '"+parentnodeid+"' ,"
+                    + " '"+originalnodeid+"' ,"
+                    + ismergable+" ,"
+                    + " '"+graphID+"'"
+                    +")";
+        }
+        else {
+            System.out.println("NODE PROVENANCE RECORD EXISTS");
+            sql = "UPDATE CISPACES_NODE_PROV SET ismergable = " + ismergable + " WHERE nodeid = '" + nodeID + "'";
+        }
+        dbcn.updateSQL(sql);
+    }
+    
     //insert a node in the history table or update the information if it exists
     public void insertNodeHistory(String nodeID, String source, String uncert, String eval, String txt, String input,
                            Timestamp timestamp, String commit, String type, String annot, String graphID, boolean isLocked, String revisionID)
@@ -204,6 +433,27 @@ public class DBQuery {
         System.out.println(sql);
 
     }
+    
+    public void insertEdgeProv(String edgeID, String parentedgeid, String originaledgeid, int ismergable, String graphID){
+        String sql;
+        sql = "Select * from CISPACES_EDGE_PROV WHERE edgeid = " + "'" + edgeID + "'";
+        ArrayList<HashMap<String,Object>> rs = dbcn.execSQL(sql);
+        if(rs.isEmpty()){
+            System.out.println("EDGE PROVENANCE RECORD DOESNT EXIST");
+            sql = "INSERT INTO CISPACES_EDGE_PROV VALUES"
+                    + "( '" + edgeID + "', " 
+                    + " '"+parentedgeid+"' ,"
+                    + " '"+originaledgeid+"' ,"
+                    + ismergable+", "
+                    + " '"+graphID+"'"
+                    +")";
+        }
+        else {
+            System.out.println("EDGE PROVENANCE RECORD EXISTS");
+            sql = "UPDATE CISPACES_EDGE_PROV SET ismergable = " + ismergable + " WHERE edgeid = '" + edgeID + "'";
+        }
+        dbcn.updateSQL(sql);
+    }
 
     //populate the edge history table
     public void insertEdgeHistory(String toID, String fromID, String formEdgeID, String edgeID, String graphID, boolean isLocked, String revisionID) {
@@ -236,16 +486,17 @@ public class DBQuery {
     public boolean deleteAnalysis(String graphID) {
         //ToDo - get nodeIds and delete from CISPACES_INFOPROV
         String[] tables = {"CISPACES_GRAPH", "CISPACES_GRAPH_HISTORY", "CISPACES_EDGE",
-        "CISPACES_EDGE_HISTORY", "CISPACES_NODE", "CISPACES_NODE_HISTORY"};
+        "CISPACES_EDGE_HISTORY", "CISPACES_NODE", "CISPACES_NODE_HISTORY", 
+        "CISPACES_GRAPH_AUTHORITY", "CISPACES_GRAPH_PROV", "CISPACES_NODE_PROV", "CISPACES_EDGE_PROV"};
         String sql;
         for(String table : tables) {
             sql = "DELETE FROM "+table+" WHERE graphid = '" + graphID + "'";
             if(!dbcn.updateSQL(sql)) {
-            System.out.println("Failed to delete Graph from "+table);
-            return false;
+                System.out.println("Failed to delete Graph from "+table);
+                return false;
             }
-        }
-       return true;       
+        }        
+        return true;       
     }
         
     //delete an edge from the database
@@ -257,9 +508,25 @@ public class DBQuery {
         return isStatementExecuted;
     }
 
+    public boolean deleteEdgeProv(String edgeid) {
+        String sql = "DELETE FROM CISPACES_EDGE_PROV WHERE edgeid = " + "'" + edgeid + "'";
+        System.out.println(sql);
+        boolean isStatementExecuted = dbcn.updateSQL(sql);
+
+        return isStatementExecuted;
+    }
+    
     //delete a node from the database
     public boolean deleteNode(String nodeid) {
         String sql = "DELETE FROM CISPACES_NODE WHERE nodeid = " + "'" + nodeid + "'";
+        System.out.println(sql);
+        boolean isStatementExecuted = dbcn.updateSQL(sql);
+
+        return isStatementExecuted;
+    }
+    
+    public boolean deleteNodeProv(String nodeid) {
+        String sql = "DELETE FROM CISPACES_NODE_PROV WHERE nodeid = " + "'" + nodeid + "'";
         System.out.println(sql);
         boolean isStatementExecuted = dbcn.updateSQL(sql);
 
@@ -315,29 +582,35 @@ public class DBQuery {
      * Return metadata for analyses belonging to the supplied user
      * @param userID The user
      * @return The analyses as a JSON formatted string
-     */
-    public String getAnalysesMetaByUser(String userID) {
-        String sql = "SELECT * FROM CISPACES_GRAPH WHERE USERID = '"+ userID + "'";
-        //JSONObject jsonGraph = new JSONObject();
+     *///mode = 0 onwed, mode = 1 shared, mode = 2 merged, mode = 3 getContributor graph
+    public String getAnalysesMeta(String userid, String userID, String projectID, int mode) {
+        String sql;
+        if (userid == null && projectID == "noprojectid" && mode == 0) sql = "SELECT * FROM CISPACES_GRAPH WHERE USERID = '"+ userID + "'";
+        else if (userid == null && projectID != "noprojectid" && mode == 0) sql = "SELECT * FROM CISPACES_GRAPH WHERE USERID = '"+ userID + "' AND PROJECTID = '" + projectID + "'";
+        else if (userid == null && projectID != "noprojectid" && mode == 1) sql = "SELECT G.*, GA.AUTHORITYTYPE FROM CISPACES_GRAPH G, CISPACES_GRAPH_AUTHORITY GA WHERE G.GRAPHID = GA.GRAPHID AND GA.AUTHORITYTYPE <> 4 AND GA.USERID = '" + userID + "' AND GA.PROJECTID = '" + projectID + "'";
+        else if (userid == null && projectID != "noprojectid" && mode == 2) sql = "SELECT G.*, A.AUTHORITYTYPE FROM CISPACES_GRAPH G, CISPACES_GRAPH_PROV P, CISPACES_GRAPH_AUTHORITY A WHERE G.GRAPHID = A.GRAPHID AND G.GRAPHID = P.GRAPHID AND A.USERID = '" + userID + "' AND G.PROJECTID = '"+ projectID + "' AND P.TYPE = 1 ORDER BY G.TIMEST";
+        else if (userid != null && mode == 3) sql = "SELECT G.*, A.AUTHORITYTYPE FROM CISPACES_GRAPH G, CISPACES_GRAPH_AUTHORITY A WHERE G.GRAPHID = A.GRAPHID AND G.PROJECTID = '" + projectID + "' AND G.USERID = '" + userid + "' AND A.USERID = '" +userID + "'";
+        else return null;
         ArrayList<HashMap<String,Object>> rs = dbcn.execSQL(sql);
-        JSONArray jsonAnalysesMetaArray = new JSONArray();
-        for(HashMap graphIdMap : rs) { 
-            JSONObject jsonGraph = new JSONObject();
-            jsonGraph.put("graphID", (String) graphIdMap.get("graphid"));
-            jsonGraph.put("userID", (String) graphIdMap.get("userid"));
-            jsonGraph.put("title", (String) graphIdMap.get("title"));
-            jsonGraph.put("description", (String) graphIdMap.get("description"));
-            jsonGraph.put("timest", (String) graphIdMap.get("timest"));
-            jsonGraph.put("isshared", (String) graphIdMap.get("isshared"));
-            jsonGraph.put("parentgraphid", (String) graphIdMap.get("parentgraphid"));
-            jsonAnalysesMetaArray.add(jsonGraph);
-           
-            String graphId = (String) graphIdMap.get("graphid");
-            System.out.println(graphId);                      
+        if(!rs.isEmpty()){
+            JSONArray jsonAnalysesMetaArray = new JSONArray();
+            for(HashMap graphIdMap : rs) { 
+                JSONObject jsonGraph = new JSONObject();
+                jsonGraph.put("graphID", (String) graphIdMap.get("graphid"));
+                jsonGraph.put("userID", (String) graphIdMap.get("userid"));
+                jsonGraph.put("title", (String) graphIdMap.get("title"));
+                jsonGraph.put("description", (String) graphIdMap.get("description"));
+                jsonGraph.put("timest", (String) graphIdMap.get("timest"));
+                jsonGraph.put("isshared", (String) graphIdMap.get("isshared"));
+                jsonGraph.put("parentgraphid", (String) graphIdMap.get("parentgraphid"));
+                if(mode != 0) jsonGraph.put("authorityType", (String) graphIdMap.get("authoritytype"));
+                jsonAnalysesMetaArray.add(jsonGraph);                
+            }
+            return jsonAnalysesMetaArray.toJSONString();
         }
-        return jsonAnalysesMetaArray.toJSONString();
+        else return null;
     }
-    
+
     /**
      * Return metadata for an analysis as JSON, based on a graph id.
      * @param graphID The graph id
@@ -347,7 +620,6 @@ public class DBQuery {
         System.out.println("Fetching Analysis metadata for graphid: "+graphID);
         String getMetaSql = "SELECT * FROM CISPACES_GRAPH WHERE GRAPHID = '" + graphID + "'";
         ArrayList<HashMap<String, Object>> graphMeta = dbcn.execSQL(getMetaSql);
-        
         if(!graphMeta.isEmpty()) {
             JSONObject jsonGraph = new JSONObject();
             jsonGraph.put("graphID", (String) graphMeta.get(0).get("graphid"));
@@ -369,14 +641,20 @@ public class DBQuery {
      * @param graphID The graph id
      * @return The analysis as a JSON formatted string
      */
-    public String getAnalysis(String graphID) {
+    public String getAnalysis(String graphID, String userID) {
         System.out.println("Fetching Analysis for graphid: "+graphID);
         String getMetaSql = "SELECT * FROM CISPACES_GRAPH WHERE GRAPHID = '" + graphID + "'";
+        String getGraphProv = "SELECT * FROM CISPACES_GRAPH_PROV WHERE GRAPHID = '" + graphID + "'";
         String getNodesSql = "SELECT * FROM CISPACES_NODE WHERE GRAPHID = '" + graphID + "'";
+        String getNodesProvSql = "SELECT NP.* FROM CISPACES_NODE_PROV NP, CISPACES_NODE N WHERE NP.NODEID = N.NODEID AND N.GRAPHID = '" + graphID + "'";
         String getEdgesSql = "SELECT * FROM CISPACES_EDGE WHERE GRAPHID = '" + graphID + "'";
-        ArrayList<HashMap<String, Object>> graphMeta = dbcn.execSQL(getMetaSql);
+        String getEdgesProvSql = "SELECT EP.* FROM CISPACES_EDGE_PROV EP, CISPACES_EDGE E WHERE EP.EDGEID = E.EDGEID AND E.GRAPHID = '" + graphID + "'";
+        String getAuthoritySql = "SELECT authoritytype FROM CISPACES_GRAPH_AUTHORITY WHERE GRAPHID = '" + graphID + "' AND USERID = '" + userID + "'";
         
-        if(!graphMeta.isEmpty()) {
+        ArrayList<HashMap<String, Object>> graphMeta = dbcn.execSQL(getMetaSql);
+        ArrayList<HashMap<String, Object>> graphProv = dbcn.execSQL(getGraphProv);
+        ArrayList<HashMap<String, Object>> authority = dbcn.execSQL(getAuthoritySql);
+        if(!graphMeta.isEmpty()&&!authority.isEmpty()&&!graphProv.isEmpty()) {
             JSONObject jsonGraph = new JSONObject();
             jsonGraph.put("graphID", (String) graphMeta.get(0).get("graphid"));
             jsonGraph.put("userID", (String) graphMeta.get(0).get("userid"));
@@ -385,77 +663,56 @@ public class DBQuery {
             jsonGraph.put("timest", (String) graphMeta.get(0).get("timest"));
             jsonGraph.put("isshared", (String) graphMeta.get(0).get("isshared"));
             jsonGraph.put("parentgraphid", (String) graphMeta.get(0).get("parentgraphid"));            
+            jsonGraph.put("authorityType", (String) authority.get(0).get("authoritytype"));
+            
+            JSONObject Prov = new JSONObject();
+            Prov.put("graphID", (String) graphProv.get(0).get("graphid"));
+            Prov.put("parentgraphid", (String) graphProv.get(0).get("parentgraphid"));
+            Prov.put("originalgraphid", (String) graphProv.get(0).get("originalgraphid"));
+            Prov.put("type", (String) graphProv.get(0).get("type"));
+            jsonGraph.put("prov", Prov);
             
             ArrayList<HashMap<String, Object>> resultNodes = dbcn.execSQL(getNodesSql);
-            JSONArray jsonNodesArray = getResultListJSON(resultNodes);       
-            jsonGraph.put("nodes", jsonNodesArray);           
+            ArrayList<HashMap<String, Object>> provNodes = dbcn.execSQL(getNodesProvSql);
+            JSONArray jsonNodesArray = getResultListJSON(resultNodes);   
+            JSONArray jsonNodesProvArray = getResultListJSON(provNodes); 
+            jsonGraph.put("nodes", jsonNodesArray);  
+            jsonGraph.put("nodes_prov", jsonNodesProvArray); 
             
             ArrayList<HashMap<String, Object>> resultEdges = dbcn.execSQL(getEdgesSql);
+            ArrayList<HashMap<String, Object>> provEdges = dbcn.execSQL(getEdgesProvSql);
             JSONArray jsonEdgesArray = getResultListJSON(resultEdges);
+            JSONArray jsoEdgesProvArray = getResultListJSON(provEdges);  
             jsonGraph.put("edges", jsonEdgesArray);
+            jsonGraph.put("edges_prov", jsoEdgesProvArray);
 
             return jsonGraph.toString();
         }
         else {
             return null; //Not found
         }
-    }//getAnalysis      
-   
-    //DEPRECATED REMOVE SOON
-//    /* Retrieves the latest analysis associated with a user upon loading the index page.
-//     * Checks if a user has worked on an analysis before.
-//     * If the user is new, then a new graph (analysis) is created and linked to them.
-//     * If the user has worked on an analysis before, a JSON object is constructed with
-//     * the nodes and edges linked to that analysis. The JSON object is turned into a JSON string
-//     * and passed to the client to visualize it in the work box.
-//     */
-//    public String getLatestAnalysis(String userID) {
-//        System.out.println("THE USER ID IS " + userID);
-//        String sql = "SELECT GRAPHID FROM CISPACES_GRAPH WHERE USERID = " +  "'"  + userID +  "'";
-//        System.out.println(sql);
-//        JSONObject jsonGraph = new JSONObject();
-//        ArrayList<HashMap<String,Object>> rs = dbcn.execSQL(sql);
-//        if(rs.isEmpty()){
-//            TimeHelper timeHelper = new TimeHelper();
-//            boolean isShared = false;
-//            String parentID = null;
-//            Date now = new Date();
-//            Timestamp timestamp = timeHelper.formatDateObjectCIS(now);
-//            String graphID = UUID.randomUUID().toString();
-//
-//            //create new analysis and pass graphID to the client
-//            String newGraphQuery = "INSERT INTO CISPACES_GRAPH(graphid, userid, timest, isshared, parentgraphid) VALUES "
-//                    + "( '" + graphID + "' ,"
-//                    + " '" + userID + "' ,"
-//                    + " '" + timestamp + "' ,"
-//                    + " '" + isShared + "' ,"
-//                    + " '" + parentID + "'"
-//                    + " )";
-//            dbcn.updateSQL(newGraphQuery);
-//            jsonGraph.put("graphID",graphID);
-//            jsonGraph.put("nodes", new JSONArray());
-//            jsonGraph.put("edges", new JSONArray());
-//            return jsonGraph.toString();
-//        }else {
-//            String idQuery = "SELECT GRAPHID FROM CISPACES_GRAPH WHERE TIMEST = (SELECT MAX(TIMEST) FROM CISPACES_GRAPH WHERE USERID = " + "'" + userID + "'" + ")";
-//            String resultIDJSON = dbcn.execSQL(idQuery).get(0).toString();
-//            String resultID = resultIDJSON.substring(9, resultIDJSON.length() - 1);
-//            String getNodesSql = "SELECT * FROM CISPACES_NODE WHERE GRAPHID = " + "'" + resultID + "'";
-//            String getEdgesSql = "SELECT * FROM CISPACES_EDGE WHERE GRAPHID = " + "'" + resultID + "'";
-//            System.out.println("THE GRAPH ID FROM THE QUERY IS " + resultID);
-//            ArrayList<HashMap<String, Object>> resultNodes = dbcn.execSQL(getNodesSql);
-//            ArrayList<HashMap<String, Object>> resultEdges = dbcn.execSQL(getEdgesSql);
-//
-//            JSONArray jsonNodesArray = getResultListJSON(resultNodes);
-//            jsonGraph.put("nodes", jsonNodesArray);
-//
-//            JSONArray jsonEdgesArray = getResultListJSON(resultEdges);
-//            jsonGraph.put("edges", jsonEdgesArray);
-//
-//            return jsonGraph.toString();
-//        }
-//
-//    }
+    }//getAnalysis     
+    
+    public String getNodesEdges(String graphID){
+        String n_sql = "SELECT NODEID FROM CISPACES_NODE WHERE GRAPHID = '" + graphID + "'";
+        String e_sql = "SELECT EDGEID FROM CISPACES_EDGE WHERE GRAPHID = '" + graphID + "'";
+        ArrayList<HashMap<String,Object>> nodes = dbcn.execSQL(n_sql);
+        ArrayList<HashMap<String,Object>> edges = dbcn.execSQL(e_sql);
+        if(!nodes.isEmpty() || !edges.isEmpty()){
+            JSONObject List = new JSONObject();
+            for(HashMap node : nodes){
+                String nodeid = (String) node.get("nodeid");
+                List.put(nodeid, 1);
+            }
+            for(HashMap edge : edges){
+                String edgeid = (String) edge.get("edgeid");
+                List.put(edgeid, 1);
+            }
+            return List.toString();
+        }
+        else return null;
+    }
+
     /*A number of queries used to store an analysis in the database.
     * Retrieves all nodes and edges connected to a graph by its graph id.
     * Constructs a json object and populates it with the JSON arrays of the nodes and edges.
@@ -496,6 +753,8 @@ public class DBQuery {
         JSONObject result = new JSONObject();
         result.put("status",isExecuted);
 
+        System.out.println("DBQuery.saveLatestAnalysis: "+saveGraphQuery);
+        
         return result.toString();
     }
 
@@ -597,8 +856,6 @@ public class DBQuery {
         System.out.println(sql);
         dbcn.updateSQL(sql);
         dbcn.updateSQL(sql2);
-
-
         dbcn.tryConnect();
             org.json.JSONArray nodes = obj.getJSONArray("nodes");
             //iterate through nodes
@@ -633,9 +890,7 @@ public class DBQuery {
                         + " )";
                 dbcn.prepareInsertStatementInTransaction(sql3);
                 System.out.println(sql3);
-
             }
-
             org.json.JSONArray edges = obj.getJSONArray("edges");
             for (int i = 0; i < edges.length(); i++) {
                 String edgeid = tryToGet(edges.getJSONObject(i), "edgeID");
@@ -658,14 +913,12 @@ public class DBQuery {
             }
 
             dbcn.commit();
-
-
     }
-
 
     public static String tryToGet(org.json.JSONObject jsonObj, String key) {
         if (jsonObj.has(key))
             return jsonObj.opt(key).toString();
         return null;
     }
+    
 }

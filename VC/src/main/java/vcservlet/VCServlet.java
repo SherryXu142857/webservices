@@ -8,6 +8,7 @@
 
 package vcservlet;
 
+import vcservlet.MergeAlgorithm;
 import database.DBQuery;
 import filters.JWTTokenNeeded;
 import io.jsonwebtoken.Jwts;
@@ -27,16 +28,17 @@ import java.time.ZoneId;
 import java.util.Date;
 import java.util.logging.Logger;
 import filters.KeyGenerator;
-import java.io.File;
-import java.io.FileWriter;
-import java.io.IOException;
+
+import java.util.*;
 
 import static javax.ws.rs.core.HttpHeaders.AUTHORIZATION;
 
 
 /**
+ * ??哪里配置了这个路径??
  * URL is http://localhost:8080/VC/rest/ for the server side
  */
+//@path("/")表示根资源所在的路径
 @Path("/")
 public class VCServlet {
 
@@ -48,13 +50,17 @@ public class VCServlet {
     
     //a logger which prints to stdout
     private static Logger log;
-
+    
     public VCServlet(){
         log = Logger.getLogger(getClass().getName());
     }
-
+    
     //this method is here just to make sure the service is up and running
     //URL http://localhost:8080/VC/rest/getInfo
+    //@Path("/getInfo")表示子资源路径为http://localhost:8080/VC/rest/getInfo
+    //该函数的意思是:如果有发送到这个子资源路径下的get请求,则用sayHello函数来对这个请求做出处理
+    //@Consumes 表示一个资源可以接受的MIME类型.
+    //@Produce 表示一个资源可以返回的MIME类型.
     @GET
     @Path("/getInfo")
     @Produces("text/html")
@@ -77,29 +83,6 @@ public class VCServlet {
         return response;
     }
 
-    
-//    DEPRECATED - REMOVE SOON
-//    
-//    /**
-//     * @param userID a user id coming from the client
-//     * @return either a json representing the latest analysis this user has worked on, or a new graph id for starting a new analysis
-//     * URL: http://localhost:8080/VC/rest/getAnalysis
-//     */
-//    @POST
-//    @Path("/getAnalysis")
-//    //@JWTTokenNeeded
-//    @Produces(MediaType.APPLICATION_JSON)
-//    public String getLatestAnalysis(String userID)
-//    {
-//        log.log(Level.INFO, "*** VERSION CONTROL SERVICE - GET LATEST ANALYSIS REQUEST ***");
-//        log.log(Level.INFO, "user id payload " + userID);
-//        DBQuery dbQuery = new DBQuery();
-//        String response = dbQuery.getLatestAnalysis(userID);
-//
-//        return response;
-//    }
-    
-
     /**
      * Fetch metadata for *all* graphs owned by supplied user
      * @param userID The owner
@@ -115,15 +98,16 @@ public class VCServlet {
     },]}
      */
     @GET
-    @Path("/analyses/user/{userID}/meta")
+    @Path("/analyses/user/{userID}/{projectID}/meta")
     //@JWTTokenNeeded
     @Produces(MediaType.APPLICATION_JSON)
-    public Response getAnalysesMetaByUserId(@PathParam("userID") String userID) {       
+    //@PathParam 表示将URL中的userID作为参数传到函数中
+    public Response getAnalysesMetaByUserId(@PathParam("userID") String userID, @PathParam("projectID") String projectID) {       
         log.log(Level.INFO, "*** VERSION CONTROL SERVICE - GET ANALYSES METADATA REQUEST");
         if(userID != null) {
-            log.log(Level.INFO, "** USER_ID="+userID);
+            log.log(Level.INFO, "** USER_ID="+userID+"**PROJECTID="+projectID);
             DBQuery dbquery = new DBQuery();
-            String analyses = dbquery.getAnalysesMetaByUser(userID);
+            String analyses = dbquery.getAnalysesMeta(null, userID, projectID, 0);
             return Response.ok()
                 .entity(analyses)
                 .build();            
@@ -133,20 +117,38 @@ public class VCServlet {
         // Because that isn't done we end up returning 200 and an empty list
     }//getAnalysesMetaByUserId
     
-    /**
-     * Fetch metadata for the supplied graphID
-     * @param graphID The graph
-     * @return A JSON formatted string comprising metadata items. e.g.
-     * {
-        "timest": "2017-11-15 14:27:12",
-        "isshared": "false",
-        "parentgraphid": "null",
-        "description": "Desc. 1",
-        "graphID": "d9f2fddc-9a37-49bd-87d8-10a24b7fb20f",
-        "title": "title 1",
-        "userID": "5a90c91f-1884-4f45-bc2e-49057745293c"
-        }     
-    */
+    @GET
+    @Path("/analyses/share/{userID}/{projectID}/meta")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response getSharedAnalysesMetaByUserId(@PathParam("userID") String userID, @PathParam("projectID") String projectID){
+        log.log(Level.INFO, "*** VERSION CONTROL SERVICE - GET SHARED ANALYSES METADATA REQUEST");
+        if (userID != null){
+            log.log(Level.INFO, "** USER_ID="+userID+"**PROJECTID="+projectID);
+            DBQuery dbquery = new DBQuery();
+            String analyses = dbquery.getAnalysesMeta(null, userID, projectID, 1);
+            return Response.ok()
+                .entity(analyses)
+                .build();  
+        }
+        else return Response.status(Response.Status.NOT_FOUND).build();
+    }
+    
+    @GET
+    @Path("/analyses/merged/{userID}/{projectID}")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response getMergedGraphListByProjectID(@PathParam("userID") String userID, @PathParam("projectID") String projectID){
+        log.log(Level.INFO, "*** VERSION CONTROL SERVICE - GET PROJECT METADATA REQUEST");
+        if(projectID != null) {
+            log.log(Level.INFO, "** PROJECTID="+projectID);
+            DBQuery dbquery = new DBQuery();
+            String analyses = dbquery.getAnalysesMeta(null, userID, projectID, 2);
+            return Response.ok()
+                .entity(analyses)
+                .build();            
+        }
+        else return Response.status(Response.Status.NOT_FOUND).build();
+    }
+
     @GET
     @Path("/analysis/{graphID}/meta")
     //@JWTTokenNeeded
@@ -163,35 +165,16 @@ public class VCServlet {
         else return Response.status(Response.Status.NOT_FOUND).build();
     }//getAnalysisMeta
     
-    
-    /**
-     * Fetch full data (metadata, nodes and edges) for the requested graphID
-     * @param graphID The graph
-     * @return A JSON formatted string e.g.
-     * {"timest": "2017-11-15 14:28:40.0",
-        "isshared": "false",
-        "nodes":
-        [
-        ],
-        "parentgraphid": "null",
-        "edges":
-        [
-        ],
-        "description": "Desc 4",
-        "graphID": "842b9eef-8a21-4ad5-ff3b-f5f2931ff37a",
-        "title": "Title 4",
-        "userID": "5a90c91f-1884-4f45-bc2e-49057745293c"  }
-    */
     @GET
-    @Path("/analysis/{graphID}")
+    @Path("/analysis/{graphID}/{userID}")
     //@JWTTokenNeeded
     @Produces(MediaType.APPLICATION_JSON)
-    public Response getAnalysis(@PathParam("graphID") String graphID) {       
+    public Response getAnalysis(@PathParam("graphID") String graphID, @PathParam("userID") String userID) {       
         log.log(Level.INFO, "*** VERSION CONTROL SERVICE - GET ANALYSIS REQUEST");
-        if(graphID != null) {
-            log.log(Level.INFO, "** GRAPH_ID="+graphID);
+        if(graphID != null && userID != null) {
+            log.log(Level.INFO, "** GRAPH_ID=" + graphID + "******USERID = " +userID);
             DBQuery dbquery = new DBQuery();
-            String analysis = dbquery.getAnalysis(graphID);
+            String analysis = dbquery.getAnalysis(graphID, userID);
             if(analysis != null)  return Response.ok().entity(analysis).build();
             else return Response.status(Response.Status.NOT_FOUND).build();
         }
@@ -214,37 +197,136 @@ public class VCServlet {
         else return Response.status(Response.Status.NOT_FOUND).build();
     }//getAnalysis    
     
-    /*
-    //ToDo - Secure this
-    @GET
-    @Path("/analysis/{analysisID}/export")
-    @Produces(MediaType.APPLICATION_OCTET_STREAM)
-    public Response exportAnalysis(@PathParam("analysisID") String analysisID) {       
-        log.log(Level.INFO, "*** VERSION CONTROL SERVICE - EXPORT ANALYSIS REQUEST");
-        if(analysisID != null) {
-            try {
-                log.log(Level.INFO, "** ANALYSIS_ID="+analysisID);
-                DBQuery dbquery = new DBQuery();
-                String analysis = dbquery.getAnalysis(analysisID);
-                
-                File file = new File(analysisID+".cis");
-                FileWriter fileWriter = new FileWriter(file);
-                fileWriter.write(analysis);
-                fileWriter.flush();
-                fileWriter.close();                
-                return Response.ok(file, MediaType.APPLICATION_OCTET_STREAM)
-                    .header("Content-Disposition", "attachment; filename=\"" + file.getName() + "\"" )
-                    .build();
-            } catch (IOException ex) {
-                log.log(Level.WARNING, "*** VERSION CONTROL SERVICE - EXPORT ANALYSIS REQUEST Failed due to an IOException");
-                ex.printStackTrace();
-                return Response.status(Response.Status.INTERNAL_SERVER_ERROR).build();                    
-            }//catch            
-        }//if
-        else return Response.status(Response.Status.NOT_FOUND).build();
-        
+    @POST
+    @Path("/graphprov/save/{type}")
+    @Consumes(MediaType.APPLICATION_JSON)
+    public void saveGraphProv(String graphProvInfo, @PathParam("type") int type){
+        log.log(Level.INFO, "*** VERSION CONTROL SERVICE - Save Graph Prov Request ***");
+
+        VCForkControl vcForkControl = new VCForkControl();
+        vcForkControl.evalJSONGraphProv(graphProvInfo, type);
+
+        log.log(Level.INFO,"*** VERSION CONTROL SERVICE - Save Graph Prov Request Handled ***");
     }
-    */
+    
+    @GET
+    @Path("/analysis/{graphID}/nodes")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response getNodesList (@PathParam("graphID") String graphID){
+        log.log(Level.INFO, "*** VERSION CONTROL SERVICE - GET ANALYSIS REQUEST");
+        if (graphID != null){
+            log.log(Level.INFO, "** GRAPH_ID="+graphID);
+            DBQuery dbquery = new DBQuery();     
+            String nodeList = dbquery.getNodesEdges(graphID);
+            if(nodeList == null) return Response.noContent().build();
+            else return Response.ok().entity(nodeList).build();
+        }
+        else return Response.status(Response.Status.NOT_FOUND).build();
+    }
+    
+    @POST
+    @Path("/project/new")
+    @Consumes(MediaType.APPLICATION_JSON)
+    public void createNewProject(String project){
+        log.log(Level.INFO, "*** VERSION CONTROL SERVICE - New project Request ***");
+
+        VCForkControl vcControl = new VCForkControl();
+        vcControl.evalJSONProject(project);
+
+        log.log(Level.INFO,"*** VERSION CONTROL SERVICE - New project Request Handled ***");
+
+    }
+    
+    @DELETE
+    @Path("/project/{projectID}")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response deleteProject(@PathParam("projectID") String projectID) {       
+        log.log(Level.INFO, "*** VERSION CONTROL SERVICE - DELETE PROJECT REQUEST");
+        if(projectID != null) {
+            log.log(Level.INFO, "** GRAPH_ID="+projectID);
+            DBQuery dbquery = new DBQuery();           
+            if(dbquery.deleteProject(projectID)) return Response.ok().build();
+            else return Response.status(Response.Status.INTERNAL_SERVER_ERROR).build();
+        }
+        else return Response.status(Response.Status.NOT_FOUND).build();
+    }
+    
+    @GET
+    @Path("/project/{projectID}/meta")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response getProjectMeta(@PathParam("projectID") String projectID) {       
+        log.log(Level.INFO, "*** VERSION CONTROL SERVICE - GET PROJECT METADATA REQUEST");
+        if(projectID != null) {
+            log.log(Level.INFO, "** PROJECT_ID="+projectID);
+            DBQuery dbquery = new DBQuery();
+            String analysis = dbquery.getProjectMeta(projectID);
+            if(analysis != null)  return Response.ok().entity(analysis).build();
+            else return Response.status(Response.Status.NOT_FOUND).build();
+        }
+        else return Response.status(Response.Status.NOT_FOUND).build();
+    }
+    
+    @GET
+    @Path("/project/{projectID}/merge")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response mergeGraph(@PathParam("projectID") String projectID){
+        log.log(Level.INFO, "*** VERSION CONTROL SERVICE - GET SUBGRAPHS REQUEST");
+        
+        MergeAlgorithm merge = new MergeAlgorithm();
+        String result = merge.mergeGraph(projectID);
+        return Response.ok().entity(result).build();
+    }
+    
+    @GET
+    @Path("/project/user/{userID}")
+    @Produces(MediaType.APPLICATION_JSON)
+    //@PathParam 表示将URL中的userID作为参数传到函数中
+    public Response getProjectMetaByUserId(@PathParam("userID") String userID) {       
+        log.log(Level.INFO, "*** VERSION CONTROL SERVICE - GET PROJECT METADATA REQUEST");
+        if(userID != null) {
+            log.log(Level.INFO, "** USER_ID="+userID);
+            DBQuery dbquery = new DBQuery();
+            String analyses = dbquery.getProjectMetaByUser(userID);
+            return Response.ok()
+                .entity(analyses)
+                .build();            
+        }
+        else return Response.status(Response.Status.NOT_FOUND).build();
+        // ToDo - There's scope here for checking the user exists before looking for analyses -
+        // Because that isn't done we end up returning 200 and an empty list
+    }
+    
+    @GET
+    @Path("/contributor/{userID}/{projectID}")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response getContributorsList(@PathParam("userID") String userID, @PathParam("projectID") String projectID){
+        log.log(Level.INFO, "*** VERSION CONTROL SERVICE - GET CONTRIBUTOR LIST REQUEST");
+        if (userID != null && projectID != null){
+            log.log(Level.INFO, "** USER_ID = " + userID + "*** PROJECT_ID = " + projectID );
+            DBQuery dbquery = new DBQuery();
+            String analyses = dbquery.getContributorsList(userID, projectID);
+            return Response.ok()
+                .entity(analyses)
+                .build();  
+        }
+        else return Response.status(Response.Status.NOT_FOUND).build();
+    }
+    
+    @GET
+    @Path("/analyses/contributorGraph/{userid}/{userID}/{projectID}/meta")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response getContributorGraphs(@PathParam("userid") String userid, @PathParam("userID") String userID, @PathParam("projectID") String projectID){
+        log.log(Level.INFO, "*** VERSION CONTROL SERVICE - GET CONTRIBUTOR GRAPHS REQUEST");
+        if (userid != null && userID != null && projectID != null){
+            log.log(Level.INFO, "**USERID = " + userid + "*** USER_ID = " + userID + "*** PROJECT_ID = " + projectID );
+            DBQuery dbquery = new DBQuery();
+            String analyses = dbquery.getAnalysesMeta(userid, userID, projectID, 3);
+            return Response.ok()
+                .entity(analyses)
+                .build();  
+        }
+        else return Response.status(Response.Status.NOT_FOUND).build();
+    }
 
     /**
      * Authenticate the user
@@ -256,7 +338,7 @@ public class VCServlet {
     @Path("/login")
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.TEXT_PLAIN)
-    public Response checkUser(String userData){
+    public Response checkUser(String userData) throws Exception{
         log.log(Level.INFO, "*** VERSION CONTROL SERVICE - Login Request ***");
         log.log(Level.INFO, "Login payload " + userData);
         VCForkControl vcForkControl = new VCForkControl();
@@ -484,6 +566,93 @@ public class VCServlet {
     }
 
     /**
+     * @param json the JSON for a node provenance record coming from the front-end upon the creation of a new node
+     * @return a response indicating whether the JSON has been processed and the relevant bits put into the database
+     * URL: http://localhost:8080/VC/rest/node_prov/nodeid
+     */
+    @Path("/node_prov/{nodeid}")
+    @POST
+    @Produces(MediaType.APPLICATION_JSON)
+    @Consumes(MediaType.APPLICATION_JSON)
+    public String getJSONInputNodeProv(String json){
+        VCForkControl vcControl = new VCForkControl();
+        String out = vcControl.evalJSONNodeProv(json);
+        return out;
+    }
+    
+    @Path("/node_prov/{nodeid}")
+    @PUT
+    @Produces(MediaType.APPLICATION_JSON)
+    @Consumes(MediaType.APPLICATION_JSON)
+    public String putNodeProv(String json){
+        log.log(Level.INFO, "*** VERSION CONTROL SERVICE - Put Node Prov Request ***");
+        VCForkControl vcControl = new VCForkControl();
+        String out = vcControl.evalJSONNodeProv(json);
+        return out;
+    }
+
+    @Path("/node_prov/{nodeid}")
+    @DELETE
+    @Produces(MediaType.TEXT_PLAIN)
+    @Consumes(MediaType.APPLICATION_JSON)
+    public boolean deleteNodeProv(@PathParam("nodeid") String nodeid){
+        log.log(Level.INFO, "*** VERSION CONTROL SERVICE - Delete Node Prov Request ***");
+
+        DBQuery dbQuery = new DBQuery();
+        boolean isDelelted = dbQuery.deleteNodeProv(nodeid);
+
+        log.log(Level.INFO,"*** VERSION CONTROL SERVICE - Delete Node Prov Request Handled ***");
+
+        return isDelelted;
+    }
+    
+    /**
+     * @param edge the JSON for an edge provenance record coming from the front-end upon the creation of a new edge
+     * @return a response indicating whether the JSON has been processed and the relevant bits put into the database
+     * URL: http://localhost:8080/VC/rest/edge/edgeid
+     */
+    @Path("/edge_prov/{edgeid}")
+    @POST
+    @Produces(MediaType.APPLICATION_JSON)
+    @Consumes(MediaType.APPLICATION_JSON)
+    public String getJSONInputEdgeProv(String edge){
+        log.log(Level.INFO, "*** VERSION CONTROL SERVICE - New Edge Request ***");
+
+        VCForkControl vcControl = new VCForkControl();
+        String out = vcControl.evalJSONEdgeProv(edge);
+
+        log.log(Level.INFO,"*** VERSION CONTROL SERVICE - Edge Request Handled ***");
+
+        return out;
+    }
+    
+    @Path("/edge_prov/{edgeid}")
+    @PUT
+    @Produces(MediaType.APPLICATION_JSON)
+    @Consumes(MediaType.APPLICATION_JSON)
+    public String putEdgeProv(String json){
+        log.log(Level.INFO, "*** VERSION CONTROL SERVICE - Put Edge Request ***");
+        VCForkControl vcControl = new VCForkControl();
+        String out = vcControl.evalJSONEdgeProv(json);
+        return out;
+    }
+    
+    @Path("/edge_prov/{edgeid}")
+    @DELETE
+    @Produces(MediaType.TEXT_PLAIN)
+    @Consumes(MediaType.APPLICATION_JSON)
+    public boolean deleteEdgeProv(@PathParam("edgeid") String edgeid){
+        log.log(Level.INFO, "*** VERSION CONTROL SERVICE - Delete Edge Prov Request ***");
+
+        DBQuery dbQuery = new DBQuery();
+        boolean isDeleted = dbQuery.deleteEdgeProv(edgeid);
+
+        log.log(Level.INFO,"*** VERSION CONTROL SERVICE - Delete Edge Prov Request Handled ***");
+
+        return isDeleted;
+    }
+    
+    /**
      * @param analysisid a string containing the id of the analysis to be loaded
      * @return a response indicating whether the JSON has been processed and the analysis updated in the database
      * URL: http://localhost:8080/VC/rest/updateAnalysis
@@ -494,10 +663,7 @@ public class VCServlet {
     @Consumes(MediaType.APPLICATION_JSON)
     public void updateAnalysis(String analysis){
         log.log(Level.INFO, "*** VERSION CONTROL SERVICE - Update Analysis Request");
-
         VCForkControl vcForkControl = new VCForkControl();
         vcForkControl.evalJSONUpdateAnalysis(analysis);
-
     }
-
 }

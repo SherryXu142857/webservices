@@ -106,7 +106,7 @@ function readFile(input_files, callback) {
     //call the Validate File funtion to validate json
     var res = validateFile(jsonData);
 
-    if (res == 'success') {
+    if (res === 'success') {
       callback(jsonData);
     } else {
       alert(res);
@@ -122,7 +122,7 @@ function readFile(input_files, callback) {
   reader.onabort = function(event) {
     console.log("Abort to read the file:");
     console.log(event);
-  }
+  };
 
   reader.readAsText(file);
 
@@ -147,11 +147,11 @@ function alertMessage(obj, msg) {
 
 function parseText(content, length) {
 
-  if(!length && typeof(length) == "undefined"){
+  if(!length && typeof(length) === "undefined"){
     length = slider_wb.slider('getValue');
   }
 
-  if (content && length != 0) {
+  if (content && length !== 0) {
     if (content.length <= length) {
       return content;
     } else {

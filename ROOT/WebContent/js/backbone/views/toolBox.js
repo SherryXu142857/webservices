@@ -7,6 +7,8 @@ var app = app || {};
  * ---------------------------------
  * the UI for 'toolBox'
  */
+var userID;
+var projectID;
 
 app.ToolBoxView = Backbone.View.extend({
   el: '#nav-toolbox',
@@ -16,6 +18,11 @@ app.ToolBoxView = Backbone.View.extend({
     'click #help': 'help',
 
     // 'click #newWorkBox': 'newWorkBox',
+    // browseAnalyses: 'Browse'按钮
+    // saveProgree: 'Save'按钮
+    // simulation: 'Relocate'按钮
+    // checkoutGraph: 'Check-out'按钮
+    // commitGraph: 'Commit'按钮
     'click #browseAnalyses': 'callBrowseBox',
     'click #saveProgress': 'save',
     'click #history': 'analysisHistory',
@@ -26,11 +33,33 @@ app.ToolBoxView = Backbone.View.extend({
     'dragend .btn-sm': 'createNode',
 
     'click #commitGraph': 'commitGraph',
-    'click #checkoutGraph': 'checkoutGraph'
+    'click #updateGraph': 'updateGraph',
+    'click #checkoutGraph': 'checkoutGraph',
+    'click #projectList': 'projectList',
+    'click #projectDetail': 'projectDetail'
   },
 
   initialize: function() {
+    userID = readCookie('user_id');
+    projectID = readCookie('projectid');
+    
     this.$el.hide();
+    $("#info").hide();
+    $("#claim").hide();
+    $("#pref").hide();
+    $("#con").hide();
+    $("#pro").hide();
+    $("#delete-node").addClass("disabled");
+    $("#link-from").addClass("disabled");
+    $("#link-to").addClass("disabled");
+    $("#cancel-link").addClass("disabled");
+    $("#commitGraph").hide();
+    $("#checkoutGraph").hide();
+    $("#saveProgress").hide();
+    $("#simulation").hide();
+    $("#updateGraph").hide();
+    $("#browseAnalyses").hide();
+    $("#projectDetail").hide();
   },
 
   render: function() {
@@ -45,20 +74,47 @@ app.ToolBoxView = Backbone.View.extend({
     // alert('help');
   },
 
+  changeMode: function(){
+      $("#info").hide();
+      $("#claim").hide();
+      $("#pref").hide();
+      $("#con").hide();
+      $("#pro").hide();
+      
+      $("#commitGraph").hide();
+      $("#updateGraph").hide();
+      $("#checkoutGraph").hide();
+      $("#saveProgress").hide();
+      $("#browseAnalyses").hide();
+      $("#simulation").hide();
+
+      $("#delete-node").addClass("disabled");
+      $("#link-from").addClass("disabled");
+      $("#link-to").addClass("disabled");
+      $("#cancel-link").addClass("disabled");
+  },
+  
   callBrowseBox: function(obj){
 
     // Gets the list of analysis from the server
     app.browseBoxView.getAnalysisList();
-
+    
+    //this.$el.hide();
+    this.changeMode();
+    
     $("#row-workbox").hide();
     $("#row-browsebox").show();
+
+    $("#row-contributorbox").show();
+    $("#row-mergedgraphbox").show();
   },
 
   createNode: function(obj) {
     var id = obj.currentTarget.id;
 
     // creates model of the node
-    var attr = app.workBoxView.createNode(id);
+    var attr = app.workBoxView.createNewNode(id);
+    var prov = app.workBoxView.createNewNodeProv(attr.nodeID);
 
     var restart = true;
     if (!chart.nodes || chart.nodes.length < 1)
@@ -80,7 +136,7 @@ app.ToolBoxView = Backbone.View.extend({
     var y = ev.pageY;
 
     // draws a new node
-    chart.node = addNewNode(attr, x, y);
+    chart.node = addNewNode(attr, prov, x, y);
 
     // re-start changed graph
     chart.simulation = restart_simulation(chart.simulation, restart);
@@ -101,10 +157,8 @@ app.ToolBoxView = Backbone.View.extend({
       var description = $("#graph_info .modal-body textarea").val();
 
       if (title != null) {
-        var graphID = chart.graphID;
-        var userID = readCookie('user_id');
         var object = {
-          "graphID": graphID,
+          "graphID": chart.graphID,
           "userID": userID,
           "title": title.trim(),
           "description": description.trim()
@@ -234,12 +288,193 @@ app.ToolBoxView = Backbone.View.extend({
   dataTransfer: function(event){
     event.originalEvent.dataTransfer.setData('text/plain', null);
   },
+  
+  getOriginalMeta: function(graphID, callback){
+      Backbone.ajax({
+          type: 'GET',
+          url: remote_server + '/VC/rest/analysis/' + graphID + '/nodes',
+          success: function(response, status, xhr){
+              callback(response, status, xhr);
+          },
+          error: function(xhr) {
+              console.error("Ajax failed: " + xhr.statusText);
+          }
+      });
+  },
 
   commitGraph: function(event){
     app.browseBoxView.toggleViewMode(true);
+    var graphID = chart.graphID;
+    if (projectID === null) alert("Something went wrong when fetching projectID! ");
+    //graphdata:本地保存的graph信息,JSON类型
+    //previousGraphData: 服务器端保存的graph信息
+    var graphdata = app.browseBoxView.getInfoFromLocalStorage(graphID);
+    this.getOriginalMeta(graphID, function(previousGraphMeta, status){
+        //数据库中已有关于该graph的node
+    if (status === "success"){
+        //生成一个新的graph,并将Nodes和Edeges与这个graph关联起来
+        var newGraphID = generateUUID();
+        var time = generateDate();
+        var object_graphdata = {
+            "graphID": newGraphID,
+            "userID": userID,
+            "timest": time,
+            "title": graphdata["title"] + time,
+            "description": graphdata["description"],
+            "isshared": "false",
+            "parentgraphid": graphID,
+            "projectID": projectID 
+        };
+        var object_graph_prov = {
+            "graphID": newGraphID,    
+            "parentgraphid": graphID,
+            "originalgraphid": graphdata["originalgraphid"],
+            "type": "0"
+        };
+        
+        Backbone.ajax({
+            type: 'POST',
+            url: remote_server + '/VC/rest/new',
+            contentType: 'application/json', 
+            data: JSON.stringify(object_graphdata),
+            success: function(){
+                Backbone.ajax({
+                    type: 'POST',
+                    url: remote_server + '/VC/rest/graphprov/save/' + 0,
+                    contentType: 'application/json',
+                    data: JSON.stringify(object_graph_prov),
+                    success: function(){
+                        if (!$.isEmptyObject(graphdata)){
+                        graphdata.nodes.forEach(function(n){
+                            var key = n.nodeID; 
+                            var n_p = JSON.parse(window.localStorage.getItem("prov-"+key));
+                            window.localStorage.removeItem(key);
+                            window.localStorage.removeItem("prov-"+key); 
+                            if (previousGraphMeta.hasOwnProperty(key)){
+                                var newnodeid = generateUUID();
+                                n_p.parentnodeid = n.nodeID;
+                                n.nodeID = newnodeid;
+                                n_p.nodeID = newnodeid;
+                                previousGraphMeta[key] = n.nodeID;
+                            }
+                            n.graphID = newGraphID;
+                            n_p.graphID = newGraphID;
+                            var orz = app.workBoxView.createNodeModelFromData(n);
+                            app.workBoxView.createNodeProvModelFromData(n_p);
+                        });
+                        graphdata.edges.forEach(function(e){
+                            var e_p = JSON.parse(window.localStorage.getItem("prov-"+e.edgeID));
+                            window.localStorage.removeItem(e.edgeID);
+                            window.localStorage.removeItem("prov-"+e.edgeID);
+                            e.graphID = newGraphID;
+                            e_p.graphID = newGraphID;
+                            if(previousGraphMeta.hasOwnProperty(e.edgeID)){
+                                e.formedgeid = e.edgeID;
+                                e_p.parentedgeid = e.edgeID;
+                                e.edgeID = generateUUID();
+                                e_p.edgeID = e.edgeID;
+                            }
+                            var previoussource = e.source;
+                            var previoustarget = e.target;
+                            if(previousGraphMeta.hasOwnProperty(e.source))
+                                e.source = previousGraphMeta[e.source];
+                            if(previousGraphMeta.hasOwnProperty(e.target))
+                                e.target = previousGraphMeta[e.target];
+                            var orz = app.workBoxView.createEdgeModelFromData(e, true, false, previoussource, previoustarget);                            
+                            app.workBoxView.createEdgeProvModelFromData(e_p);
+                        }); 
+                        window.localStorage.removeItem(graphID);
+                        window.localStorage.removeItem("prov-" + graphID);
+                        }
+                        else {
+                            alert("Nothing can be committed! ");
+                        }
+                    }
+                });
+            },
+            error: function(xhr){
+                console.error(xhr);
+                alert("An error occurred fetching data");
+            }
+        });
+    }
+        //该graph没有node信息
+    if (status === "nocontent"){
+        if (!$.isEmptyObject(graphdata)){
+            app.workBoxView.createModelForGraphData(graphID, graphdata);
+        }
+        else {
+            alert("Nothing can be committed! ");
+        }
+    }
+    });
   },
-
+  
+  updateGraph: function(event){
+    var graphID = chart.graphID;
+    app.browseBoxView.toggleViewMode(true);
+    app.browseBoxView.getAnalysis(graphID, function(previousGraphData){
+        previousGraphData.nodes.forEach(function(n){
+            var id = n.nodeID;
+            if(window.localStorage.getItem(id) === null){
+                deleteNodes(id, function(isdeleted){
+                    if (isdeleted === false)
+                        alert("Something went wrong when deleting node!");
+                });
+            }
+            window.localStorage.removeItem(id);
+            window.localStorage.removeItem("prov-"+id);
+        });
+        previousGraphData.edges.forEach(function(e){
+            var id = e.edgeID;
+            if(window.localStorage.getItem(id) === null){
+                deleteEdges(id, function(isdeleted){
+                    if (isdeleted === false)
+                        alert("Something went wrong when deleting node!");
+                });
+            }
+            window.localStorage.removeItem(id);
+            window.localStorage.removeItem("prov-"+id);
+        });
+        var graphdata = app.browseBoxView.getInfoFromLocalStorage(graphID); 
+        app.workBoxView.createModelForGraphData(graphID, graphdata);
+        alert("This graph is updated!");
+    });
+  },
+  
   checkoutGraph: function(event){
     app.browseBoxView.toggleViewMode(false);
+    app.browseBoxView.getAnalysis(chart.graphID, function(data){
+        var result = "success";
+        if (result == 'success')
+            app.browseBoxView.parseGraphDataToLocalStorage(data);
+        else {
+            alert(result);
+            return ("Fail");
+        }
+    });
+  },
+  
+  projectList: function() {
+      $("#row-mergedgraphbox").hide();
+      $("#row-browsebox").hide();
+      $("#row-contributorbox").hide();
+      $("#row-workbox").hide();
+      $("#row-projectbox").show();
+      app.projectBoxView.getProjectList();
+      this.changeMode();
+      
+      this.$el.hide();
+  },
+  
+  projectDetail: function() {
+      this.changeMode();
+      $("#row-mergedgraphbox").show();
+      $("#row-browsebox").show();
+      app.browseBoxView.getAnalysisList();
+      $("#browse_box_own").show();
+      $("#row-contributorbox").show();
+      $("#row-projectbox").hide();
+      $("#row-workbox").hide();
   }
 });

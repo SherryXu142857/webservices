@@ -17,7 +17,6 @@ app.WorkBoxView = Backbone.View
     },
 
     initialize: function() {
-
       /* -------------------- initialisation for drawing a graph -------------------- */
       var area_id = this.el.id;
 
@@ -116,19 +115,33 @@ app.WorkBoxView = Backbone.View
             if (opt.currentTarget.id == "delete-node") {
 
               // delete selected node
+              //从视图上删除这个节点
               deleteNode(index);
+              deleteNodeProv(index);
 
+              //node_model.destroy();
+              
+              //仅从模型中删除,并将该Node的信息在localStorage中删除
               // delete the model of selected node
               var node_model = app.Nodes.get(target);
-              node_model.destroy();
+              var node_prov_model = app.Node_Provs.get(target);
+              app.Nodes.remove(node_model);
+              app.Node_Provs.remove(node_prov_model);
+              window.localStorage.removeItem(target);    
+              window.localStorage.removeItem("prov-" + target);
 
-              // delete edges which are connected to selected node
+              // delete edges which are connected to selected node(从视图上)
               var deleted_edges = deleteEdge(target);
 
-              // delete the models of extracted edges
+              // delete the models of extracted edges(从模型和本地上)
               deleted_edges.forEach(function(e) {
                 var edge_model = app.Edges.get(e.edgeID);
-                edge_model.destroy();
+                var edge_prov_model = app.Edge_Provs.get(target);
+                app.Edges.remove(edge_model);
+                app.Edge_Provs.remove(edge_prov_model);
+                window.localStorage.removeItem(e.edgeID);
+                window.localStorage.removeItem("prov-" + e.edgeID);
+                //edge_model.destroy();
               });
 
               // re-start force-directed graph
@@ -142,6 +155,7 @@ app.WorkBoxView = Backbone.View
               self.changeLinkFrom(target);
             } else if (opt.currentTarget.id == "link-to") {
               var attr = null;
+              var prov = null;
 
               if (link_from == target) {
                 // if the first point and the second point are same, shows an error message
@@ -149,10 +163,11 @@ app.WorkBoxView = Backbone.View
               } else {
                 // create a new model of edge
                 attr = self.createEdge(link_from, target);
+                prov = self.createNewEdgeProv(attr.edgeID);
 
                 if (attr) {
                   // draw the node
-                  chart.edge = addNewEdge(attr);
+                  chart.edge = addNewEdge(attr, prov);
 
                   // re-start graph
                   chart.simulation = restart_simulation(chart.simulation, true);
@@ -312,18 +327,14 @@ app.WorkBoxView = Backbone.View
             }
           });
         });
-
         $("#node_" + id + " .row-critical").show();
       }
-
       $("#node_" + id).modal('show');
     },
 
-    createNode: function(id, tweet_uri, text) {
-
-      // generates the type of a new node
+    createNewNode: function(id, tweet_uri, text) {
+        // generates the type of a new node
       var input = id.substr(0, 1).toUpperCase() + id.substr(1).toLowerCase();
-
       var type = "I";
       if (input == "Pref") {
         type = "P";
@@ -332,34 +343,49 @@ app.WorkBoxView = Backbone.View
       } else if (input == "Con") {
         type = "CA";
       }
-
       // generates created time using format string type
       var time = generateDate();
-
       var nodeID = generateUUID();
-
       var source = (tweet_uri) ? tweet_uri : readCookie('user_name');
-
+        
       var attr = {
-        source: source,
-        id: nodeID,
-        text: (text) ? text : input,
         input: input,
+        eval: "N/A",
         dtg: time,
+        islocked: "false",
+        text: (text) ? text : input,
+        source: source,
+        cmt: "N/A",
         type: type,
+        graphID: chart.graphID,
         nodeID: nodeID,
-        graphID: chart.graphID
-      };
-
-      // creates model of the node in the collection and sends POST request to a back-end service
-      app.Nodes.create(attr, {
-        type: 'POST'
-      });
-
+        uncert: "Confirmed"
+      };      
+      window.localStorage.setItem(nodeID, JSON.stringify(attr));     
+      attr.id = nodeID;  
+      app.Nodes.add(attr); 
+      delete attr.cmt;
+      delete attr.eval;
+      delete attr.islocked;
+      delete attr.uncert;      
       return attr;
     },
+    
+    createNewNodeProv: function(nodeID){
+        var n_prov = {
+            nodeID: nodeID,
+            parentnodeid: "null",
+            originalnodeid: "null",
+            ismergable: "1",
+            graphID: chart.graphID
+        };
+        window.localStorage.setItem("prov-"+nodeID, JSON.stringify(n_prov));        
+        n_prov.id = nodeID;
+        app.Node_Provs.add(n_prov);    
+        return n_prov;
+    },
 
-    createNodeModelFromData: function(data) {
+    createNodeModelFromData: function(data, flag=true) {
 
       var attr = {
         id: data['nodeID'],
@@ -375,11 +401,24 @@ app.WorkBoxView = Backbone.View
         annot: data['annot'],
         graphID: data['graphID']
       };
-
+      if (flag)
       // creates model of the node in the collection and sends POST request to a back-end service
-      app.Nodes.create(attr);
-
+        app.Nodes.create(attr);
+      else app.Nodes.add(attr);
       return attr;
+    },
+    
+    createNodeProvModelFromData: function(data, flag=true) {    
+        var attr = {
+            id: data['nodeID'],
+            nodeID: data['nodeID'],
+            parentnodeid: data['parentnodeid'],
+            originalnodeid: data['originalnodeid'],
+            graphID: data['graphID']
+        };
+        if(flag)
+            app.Node_Provs.create(attr);
+        else app.Node_Provs.add(attr);
     },
 
     addNode: function(node) {
@@ -387,7 +426,6 @@ app.WorkBoxView = Backbone.View
       var view = new app.NodeView({
         model: node
       });
-
       this.$el.append(view.render().el);
     },
 
@@ -420,61 +458,80 @@ app.WorkBoxView = Backbone.View
       }
 
       // at least one node should be pref, pro or con node
-      if (className == 'edge') {
-        return null;
-      }
-
+      if (className == 'edge') return null;
       var edgeID = generateUUID(); // Math.floor(Math.random() * 100000) + 1;
       var graphID = chart.graphID;
 
       var attr = {
-        id: edgeID,
         target: target,
         source: source,
         edgeID: edgeID,
-        className: className,
-        graphID: graphID
-      };
-
-      // creates model of the edge in the collection and sends POST request to a back-end service
-      app.Edges.create(attr, {
-        type: 'POST'
-      });
+        graphID: graphID,
+        formedgeid: "null",
+        islocked: "false"
+      };     
+      window.localStorage.setItem(edgeID, JSON.stringify(attr));
+      attr.id = edgeID;
+      attr.className = className;     
+      delete attr.formedgeid;
+      delete attr.islocked;
+      app.Edges.add(attr);    
 
       return attr;
     },
+    
+    createNewEdgeProv: function(edgeID) {
+        var e_prov = {
+            edgeID: edgeID,
+            parentedgeid: "null",
+            originaledgeid: "null",
+            ismergable: "1",
+            graphID: chart.graphID
+        };
+        window.localStorage.setItem("prov-"+edgeID, JSON.stringify(e_prov));        
+        e_prov.id = edgeID;
+        app.Edge_Provs.add(e_prov);      
+        return e_prov;
+    },
 
-    createEdgeModelFromData: function(data) {
+    createEdgeModelFromData: function(data, flag=true, mode = true, sourcenode = null, targetnode = null) {
 
       // designates the edge's class using the type of connected nodes
-      var target = data['target'];
-      var source = data['source'];
-
-      var className = 'edge';
-      var targetNode = $('#draw_' + target).children()[0];
-      if (targetNode) {
-        var targetNodeClassName = targetNode.className.baseVal;
-        if (targetNodeClassName.includes("pro-node")) {
-          className = 'pro-edge edge';
-        } else if (targetNodeClassName.includes("con-node")) {
-          className = 'con-edge edge';
-        } else if (targetNodeClassName.includes("pref-node")) {
-          className = 'pref-edge edge';
+        var target;
+        var source;
+        if(mode){
+            target = data['target'];
+            source = data['source'];
         }
-      }
-
-      var sourceNode = $('#draw_' + source).children()[0];
-      if (sourceNode) {
-        var sourceNodeClassName = sourceNode.className.baseVal;
-        if (sourceNodeClassName.includes("pro-node")) {
-          className = 'pro-edge edge';
-        } else if (sourceNodeClassName.includes("con-node")) {
-          className = 'con-edge edge';
-        } else if (sourceNodeClassName.includes("pref-node")) {
-          className = (className == 'edge') ? 'pref-edge edge' : className;
+        else {
+            source = sourcenode;
+            target = targetnode;
         }
-      }
+        var className = 'edge';
+        var targetNode = $('#draw_' + target).children()[0];
+        if (targetNode) {
+            var targetNodeClassName = targetNode.className.baseVal;
+            if (targetNodeClassName.includes("pro-node")) {
+                className = 'pro-edge edge';
+            } else if (targetNodeClassName.includes("con-node")) {
+                className = 'con-edge edge';
+            } else if (targetNodeClassName.includes("pref-node")) {
+                className = 'pref-edge edge';
+            }
+        }
 
+        var sourceNode = $('#draw_' + source).children()[0];
+        if (sourceNode) {
+            var sourceNodeClassName = sourceNode.className.baseVal;
+            if (sourceNodeClassName.includes("pro-node")) {
+                className = 'pro-edge edge';
+            } else if (sourceNodeClassName.includes("con-node")) {
+                className = 'con-edge edge';
+            } else if (sourceNodeClassName.includes("pref-node")) {
+                className = (className == 'edge') ? 'pref-edge edge' : className;
+            }
+        }
+        
       // at least one node should be pref, pro or con node
       if (className == 'edge') {
         return null;
@@ -482,18 +539,53 @@ app.WorkBoxView = Backbone.View
 
       var attr = {
         id: data['edgeID'],
-        target: target,
-        source: source,
-        formEdgeID: data['formEdgeID'],
+        target: data['target'],
+        source: data['source'],
+        formEdgeID: data['formedgeid'],
         edgeID: data['edgeID'],
         className: className,
         graphID: data['graphID']
       };
-
-      // creates model of the edge in the collection and sends POST request to a back-end service
-      app.Edges.create(attr);
-
+      if (flag)
+        // creates model of the edge in the collection and sends POST request to a back-end service
+        app.Edges.create(attr);
+      else app.Edges.add(attr);
+       
       return className;
+    },
+    
+    createEdgeProvModelFromData: function(data, flag=true) {
+        var attr = {
+            id: data['edgeID'],
+            edgeID: data['edgeID'],
+            parentedgeid: data['parentedgeid'],
+            originaledgeid: data['originaledgeid'],
+            graphID: data['graphID']
+        };
+        if(flag)
+            app.Edge_Provs.create(attr);
+        else app.Edge_Provs.add(attr);
+    },
+    
+    createModelForGraphData: function(graphID, graphdata){
+        graphdata.nodes.forEach(function(n){
+            var orz = app.workBoxView.createNodeModelFromData(n);
+            window.localStorage.removeItem(n.nodeID);
+        });
+        graphdata.edges.forEach(function(e){
+            var orz = app.workBoxView.createEdgeModelFromData(e);
+            window.localStorage.removeItem(e.edgeID); 
+        }); 
+        graphdata.nodes_prov.forEach(function(n_p){
+            app.workBoxView.createNodeProvModelFromData(n_p);
+            window.localStorage.removeItem("prov-"+n_p.nodeID); 
+        });
+        graphdata.edges_prov.forEach(function(e_p){
+            app.workBoxView.createEdgeProvModelFromData(e_p);
+            window.localStorage.removeItem("prov-"+e_p.edgeID); 
+        });
+        window.localStorage.removeItem(graphID);
+        window.localStorage.removeItem("prov-"+graphID);
     },
 
     clearWorkBox: function() {
@@ -516,7 +608,7 @@ app.WorkBoxView = Backbone.View
         description: "",
         date: null,
         nodes: [],
-        edges: [],
+        edges: []
       };
 
       // removes the div used for views of previous nodes.

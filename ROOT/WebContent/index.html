@@ -72,7 +72,12 @@
 					<!-- buttons for commit/checkout a graph -->
 					<a class="btn btn-default" style="margin-left: 20px;" id="browseAnalyses">Browse</a>
 					<a class="btn btn-default" id="commitGraph">Commit</a>
+                                        <a class="btn btn-default" id="updateGraph">Update</a>
 					<a class="btn btn-default" id="checkoutGraph">Check-out</a>
+                                        
+                                        <!-- buttons for page switching -->
+                                        <a class="btn btn-default" id="projectList">Project List</a>
+                                        <a class="btn btn-default" id="projectDetail">Project Detail</a>
 				</div>
 			</div>
 
@@ -93,7 +98,68 @@
 		</nav>
 
 		<div id="page-wrapper" style="margin: 0">
-			<div class="row" id="row-workbox">
+                    
+                        <div class="row" id="row-projectbox">
+                                <div class="col-xs-12 col-md-12"> 
+                                        <!--**********************************Project Box***************************************** -->
+                                        <div class ="panel panel-default">
+                                                <div class="panel-heading">
+                                                        <i class="fa fa-codepen fa-fw"></i> Project Box
+                                                </div>
+                                                <div id="project_box">
+                                                    <div class="panel-body" id ="project_box_own">
+                                                             <div class="col-lg-2 col-md-4">
+                                                                        <div class="btn btn-primary btn-lg btn-block" id="new_project" title="Create a new project">
+                                                                                <div class="panel-heading">
+                                                                                        <div class="row text-center">
+                                                                                                <div class="huge">New</div>
+                                                                                        </div>
+                                                                                </div>
+                                                                        </div>
+                                                            </div>
+                                                    </div>
+                                                    <div class="panel-body" id="project_box_shared">
+                                                    </div>
+                                                </div>
+                                        </div>
+                                </div>
+                        </div>
+                    
+                        <div class="row" id="row-contributorbox">
+                                <div class="col-xs-12 col-md-12"> 
+                                        <!--**********************************Contributor Box***************************************** -->
+                                        <div class ="panel panel-default">
+                                                <div class="panel-heading">
+                                                        <i class="fa fa-codepen fa-fw"></i> Contributors
+                                                </div>
+                                                <div class="panel-body" id ="contributor_box">
+                                                </div>
+                                        </div>
+                                </div>
+                        </div>
+                        <div class="row" id="row-mergedgraphbox">
+                                <div class="col-xs-12 col-md-12">
+                                        <!--**********************************Merged Graph Box***************************************** -->
+                                        <div class ="panel panel-default">
+                                                <div  class="panel-heading">
+                                                        <i class="fa fa-codepen fa-fw"></i> Merged Graph
+                                                </div>
+                                                <div class="panel-body" id ="mergedgraph_box">
+                                                    <div class="col-lg-2 col-md-4" id="mergeGraphContainer">
+                                                        <div class="btn btn-primary btn-lg btn-block" id="mergeGraph" title="Merge Graphs">
+                                                                <div class="panel-heading">
+                                                                    <div class="row text-center">
+                                                                        <div class="huge">Merge Graphs</div>
+                                                                    </div>
+                                                                </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                        </div>
+                                </div>
+                        </div>
+
+                        <div class="row" id="row-workbox">
 				<div class="col-xs-10 col-md-6">
 					<!--
 						************************************* Work Box *************************************
@@ -301,25 +367,29 @@
 						<div class="panel-heading">
 							<i class="fa fa-codepen fa-fw"></i> Browse Box
 						</div>
-						<div class="panel-body" id="browse_box">
-							<div class="col-lg-2 col-md-4">
-								<div class="btn btn-primary btn-lg btn-block" id="new_analysis" title="Create a new analysis">
-									<div class="panel-heading">
-										<div class="row text-center">
-											<div class="huge">New</div>
-										</div>
-									</div>
-								</div>
-								<div class="btn btn-info btn-lg btn-block" title="Import an analysis from file">
-									<div class="panel-heading">
-										<div class="row text-center">
-											<div id="importFromFile" class="huge">Import</div>
-											<input type="file" id="myFile" style="display:none;" />
-										</div>
-									</div>
-								</div>
-							</div>
-						</div>
+                                                <div id="browse_box">
+                                                    <div class="panel-body" id="browse_box_own">
+                                                            <div class="col-lg-2 col-md-4">
+                                                                    <div class="btn btn-primary btn-lg btn-block" id="new_analysis" title="Create a new analysis">
+                                                                            <div class="panel-heading">
+                                                                                    <div class="row text-center">
+                                                                                            <div class="huge">New</div>
+                                                                                    </div>
+                                                                            </div>
+                                                                    </div>
+                                                                    <div class="btn btn-info btn-lg btn-block" title="Import an analysis from file">
+                                                                            <div class="panel-heading">
+                                                                                    <div class="row text-center">
+                                                                                            <div id="importFromFile" class="huge">Import</div>
+                                                                                            <input type="file" id="myFile" style="display:none;" />
+                                                                                    </div>
+                                                                            </div>
+                                                                    </div>
+                                                            </div>
+                                                    </div>
+                                                    <div class="panel-body" id="browse_box_contribute">
+                                                    </div>
+                                                </div>
 					</div>
 				</div>
 			</div>
@@ -500,11 +570,15 @@
 		<script type="text/javascript" src="js/variables.js"></script>
 
 		<script type="text/javascript" src="js/backbone/models/node.js"></script>
+                <script type="text/javascript" src="js/backbone/models/node_prov.js"></script>
 		<script type="text/javascript" src="js/backbone/models/edge.js"></script>
+                <script type="text/javascript" src="js/backbone/models/edge_prov.js"></script>
 		<script type="text/javascript" src="js/backbone/models/topic.js"></script>
 		<script type="text/javascript" src="js/backbone/models/vocabulary.js"></script>
-		<script type="text/javascript" src="js/backbone/collections/nodes.js"></script>
+                <script type="text/javascript" src="js/backbone/collections/nodes.js"></script>
+                <script type="text/javascript" src="js/backbone/collections/node_provs.js"></script>
 		<script type="text/javascript" src="js/backbone/collections/edges.js"></script>
+                <script type="text/javascript" src="js/backbone/collections/edge_provs.js"></script>
 		<script type="text/javascript" src="js/backbone/collections/topics.js"></script>
 		<script type="text/javascript" src="js/backbone/collections/vocabularies.js"></script>
 
@@ -515,7 +589,10 @@
 		<script type="text/javascript" src="js/backbone/views/browseBox.js"></script>
 		<script type="text/javascript" src="js/backbone/views/evalBox.js"></script>
 		<script type="text/javascript" src="js/backbone/views/vocabularyBox.js"></script>
-
+                <script type="text/javascript" src="js/backbone/views/projectBox.js"></script>
+                <script type="text/javascript" src="js/backbone/views/mergedgraphBox.js"></script>
+                <script type="text/javascript" src="js/backbone/views/contributorBox.js"></script>
+                
 		<!--
 		<script type="text/javascript" src="js/backbone/views/reqBox.js"></script>
 		<script type="text/javascript" src="js/backbone/views/prefBox.js"></script>
